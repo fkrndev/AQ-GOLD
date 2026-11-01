@@ -1,0 +1,53 @@
+[judge]
+mode = "individual"
+samples = 1
+guard = "penalize"
+isolated = true
+timeout = 300
+prompt_template = "judge-prompt.md"
+files = ["submission/change.diff", "submission/changed-files.txt"]
+
+[[criterion]]
+id = "stamp-is-never-upgraded-silently"
+description = "Does the read path in rates.ts return the stored stamp version without rewriting it, so only an explicit stampRates call changes the version? (Judge the stamp read path in rates.ts.)"
+type = "binary"
+weight = 3
+
+[criterion.annotations]
+blocker = false
+
+[[criterion]]
+id = "stamp-parsing-rejects-bad-data"
+description = "Does the stamp parsing in rates.ts return null when the stored stamp is corrupt or the wrong shape, instead of throwing or using it? (Judge the stamp parsing in rates.ts.)"
+type = "binary"
+weight = 2
+
+[criterion.annotations]
+blocker = false
+
+[[criterion]]
+id = "gap-reads-original-first"
+description = "Does ratesGap in rates.ts take the stamped version for the then side and the newest table for the now side, in that direction? (Judge the ratesGap function in rates.ts.)"
+type = "binary"
+weight = 2
+
+[criterion.annotations]
+blocker = false
+
+[[criterion]]
+id = "rate-lookup-has-one-source"
+description = "Do the rate lookups in estimate.ts read numbers from the rates structure passed to createEstimate instead of reading the catalog directly in the line builders? (Judge the line builders in estimate.ts.)"
+type = "binary"
+weight = 2
+
+[criterion.annotations]
+blocker = false
+
+[[criterion]]
+id = "added-tests-clear-stored-state"
+description = "Do the tests added under tests/ clear the stored stamp data between cases so results do not depend on test order? (Judge the new test files under tests/.)"
+type = "binary"
+weight = 1
+
+[criterion.annotations]
+blocker = false

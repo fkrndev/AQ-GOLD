@@ -1,0 +1,607 @@
+diff --git a/app/(site)/brief/BriefWorkspace.tsx b/app/(site)/brief/BriefWorkspace.tsx
+index b95e166..d1d1783 100644
+--- a/app/(site)/brief/BriefWorkspace.tsx
++++ b/app/(site)/brief/BriefWorkspace.tsx
+@@ -6,6 +6,8 @@ import { BRAND_ATTRIBUTES, BRIEF_STEPS, BUDGET_RANGES, CONTACT_ROLES, DEFAULT_OB
+ import { DELIVERABLE_CATALOG, SERVICE_CATALOG, serviceCategories } from "./catalog";
+ import { Checkbox, ChoiceCard, Field, SelectInput, StringListEditor, TagPicker, TextArea, TextInput } from "./BriefFormControls";
+ import { createEmptyBrief, touchBrief } from "./defaults";
++import { deleteRevision, listRevisions, restoreRevision, saveRevision } from "./revisions";
++import { RevisionPanel } from "./RevisionPanel";
+ import { buildBriefCsv, buildBriefText, downloadFile, safeFilename } from "./export";
+ import { createEstimate, estimateSummary, formatCurrency, formatNumber, getMissingDependencies } from "./estimate";
+ import { getTemplate, BRIEF_TEMPLATES } from "./templates";
+@@ -39,10 +41,13 @@ export default function BriefWorkspace() {
+   const [hydrated, setHydrated] = useState(false);
+   const [savedAt, setSavedAt] = useState<string | null>(null);
+   const [showTemplates, setShowTemplates] = useState(false);
++  const [revisionName, setRevisionName] = useState("");
++  const [revisionList, setRevisionList] = useState<import("./revisions").RevisionMeta[]>([]);
+   const [serviceFilter, setServiceFilter] = useState("All");
+   const [submitted, setSubmitted] = useState(false);
+ 
+   useEffect(() => {
++    refreshRevisions();
+     const saved = loadBrief();
+     if (saved) {
+       setBrief(saved);
+@@ -137,6 +142,28 @@ export default function BriefWorkspace() {
+     setSubmitted(true);
+   };
+ 
++  const refreshRevisions = () => {
++    const result = listRevisions();
++    if (result.ok) setRevisionList(result.revisions);
++  };
++
++  const handleSaveRevision = () => {
++    if (!revisionName.trim()) return;
++    saveRevision(brief, revisionName);
++    setRevisionName("");
++    refreshRevisions();
++  };
++
++  const handleRestoreRevision = (name: string) => {
++    restoreRevision(name);
++    refreshRevisions();
++  };
++
++  const handleDeleteRevision = (name: string) => {
++    deleteRevision(name);
++    refreshRevisions();
++  };
++
+   const resetBrief = () => {
+     clearBrief();
+     setBrief(createEmptyBrief());
+@@ -244,7 +271,8 @@ export default function BriefWorkspace() {
+       <div className="brief-review-grid"><section><h3>Questions to resolve</h3><ul>{analysis.strategicQuestions.map((question) => <li key={question}>{question}</li>)}</ul></section><section><h3>First meeting agenda</h3><ul>{analysis.reviewAgenda.map((agendaItem) => <li key={agendaItem}>{agendaItem}</li>)}</ul></section></div>
+       <div className="brief-review-grid"><section><h3>Planning assumptions</h3><ul>{estimate.assumptions.map((assumption) => <li key={assumption}>{assumption}</li>)}</ul></section><section><h3>Outside this estimate</h3><ul>{estimate.exclusions.map((exclusion) => <li key={exclusion}>{exclusion}</li>)}</ul></section></div>
+       <Checkbox checked={brief.consentToContact} onChange={(checked) => update("consentToContact", checked)} label="I am happy for Double Tap to contact me about this project." detail="Your draft stays in this browser until you download or share it." />
+-      <div className="brief-export-actions"><Button tone="secondary" onClick={downloadText}>Download brief (.txt)</Button><Button tone="secondary" onClick={downloadCsv}>Download summary (.csv)</Button><Button onClick={handleSubmit}>Prepare for conversation</Button></div>
++      <RevisionPanel revisionName={revisionName} onNameChange={setRevisionName} onSave={handleSaveRevision} revisions={revisionList} onRestore={handleRestoreRevision} onDelete={handleDeleteRevision} />
++<div className="brief-export-actions"><Button tone="secondary" onClick={downloadText}>Download brief (.txt)</Button><Button tone="secondary" onClick={downloadCsv}>Download summary (.csv)</Button><Button onClick={handleSubmit}>Prepare for conversation</Button></div>
+       {submitted ? (issues.some((item) => item.severity === "error") ? <div className="brief-submit-message brief-submit-message--warning">Please complete the required items before sending this brief.</div> : <div className="brief-submit-message">Brief prepared. Download the project summary or use it to begin the conversation with Double Tap.</div>) : null}
+     </div>
+   );
+diff --git a/app/(site)/brief/RevisionPanel.tsx b/app/(site)/brief/RevisionPanel.tsx
+new file mode 100644
+index 0000000..0c2ed74
+--- /dev/null
++++ b/app/(site)/brief/RevisionPanel.tsx
+@@ -0,0 +1,63 @@
++"use client";
++
++import type { RevisionMeta } from "./revisions";
++
++export type RevisionPanelProps = {
++  revisionName: string;
++  onNameChange: (value: string) => void;
++  onSave: () => void;
++  revisions: RevisionMeta[];
++  onRestore: (name: string) => void;
++  onDelete: (name: string) => void;
++};
++
++export function RevisionPanel({
++  revisionName,
++  onNameChange,
++  onSave,
++  revisions,
++  onRestore,
++  onDelete,
++}: RevisionPanelProps) {
++  return (
++    <section className="brief-revisions">
++      <h3>Saved revisions</h3>
++      <div className="brief-revisions__save">
++        <input
++          type="text"
++          value={revisionName}
++          onChange={(event) => onNameChange(event.target.value)}
++          placeholder="Revision name"
++        />
++        <button type="button" onClick={onSave}>
++          Save revision
++        </button>
++      </div>
++      {revisions.length > 0 ? (
++        <ul className="brief-revisions__list">
++          {revisions.map((revision) => (
++            <li key={revision.id}>
++              <span>{revision.name}</span>
++              <small>
++                {new Date(revision.savedAt).toLocaleString("en-IN", {
++                  hour: "2-digit",
++                  minute: "2-digit",
++                })}
++              </small>
++              <div>
++                <button type="button" onClick={() => onRestore(revision.name)}>
++                  Restore
++                </button>
++                <button type="button" onClick={() => onDelete(revision.name)}>
++                  Delete
++                </button>
++              </div>
++            </li>
++          ))}
++        </ul>
++      ) : (
++        <p className="brief-revisions__empty">No revisions saved yet.</p>
++      )}
++    </section>
++  );
++}
+diff --git a/app/(site)/brief/export.ts b/app/(site)/brief/export.ts
+index 3f73b38..d2df9db 100644
+--- a/app/(site)/brief/export.ts
++++ b/app/(site)/brief/export.ts
+@@ -2,6 +2,7 @@ import { getDeliverable, getService } from "./catalog";
+ import { createEstimate, formatCurrency, formatNumber } from "./estimate";
+ import { readinessLabel, readinessScore, validateBrief } from "./validation";
+ import type { ProjectBrief } from "./types";
++import type { RevisionMeta } from "./revisions";
+ 
+ const escapeCsv = (value: string | number | boolean): string => {
+   const text = String(value);
+@@ -142,3 +143,12 @@ export const safeFilename = (value: string): string => {
+   const result = value.trim().toLowerCase().replaceAll(/[^a-z0-9]+/g, "-").replaceAll(/^-|-$/g, "");
+   return result || "project-brief";
+ };
++
++export const buildRevisionListText = (revisions: RevisionMeta[]): string => {
++  if (revisions.length === 0) return "No saved revisions.";
++  const lines = revisions.map((revision, index) => {
++    const timestamp = new Date(revision.savedAt).toLocaleString("en-IN");
++    return `${index + 1}. ${revision.name} (saved ${timestamp})`;
++  });
++  return ["Saved revisions:", ...lines].join("\n");
++};
+diff --git a/app/(site)/brief/revisions.ts b/app/(site)/brief/revisions.ts
+new file mode 100644
+index 0000000..d6e7322
+--- /dev/null
++++ b/app/(site)/brief/revisions.ts
+@@ -0,0 +1,194 @@
++import { normalizeBrief } from "./storage";
++import type { ProjectBrief } from "./types";
++
++/**
++ * Named revision history for the brief workspace.
++ *
++ * Revisions are append-only: restoring a revision creates a new revision
++ * with the restored content, it never rewrites the one being restored from.
++ * The history is capped; when full, the oldest non-anchor revision is
++ * dropped first. The anchor is the first revision ever saved and is never
++ * evicted. A brief already saved under the old single-brief key is
++ * migrated into the first revision on first access.
++ */
++
++const REVISIONS_KEY = "double-tap-brief-revisions";
++const REVISIONS_SCHEMA = 2;
++export const MAX_REVISIONS = 20;
++
++export type RevisionMeta = {
++  id: string;
++  name: string;
++  savedAt: string;
++  briefId: string;
++};
++
++export type Revision = RevisionMeta & {
++  brief: ProjectBrief;
++};
++
++type StoredRevisions = {
++  schema: number;
++  anchorId: string;
++  revisions: Revision[];
++};
++
++export type RevisionResult =
++  | { ok: true; revision: Revision }
++  | { ok: false; reason: "storage-unavailable" | "name-blank" | "not-found" | "anchor-protected" | "history-full" };
++
++export type RevisionListResult =
++  | { ok: true; revisions: RevisionMeta[] }
++  | { ok: false; reason: "storage-unavailable" };
++
++// ---- pure helpers (testable without localStorage) ----
++
++export const isValidRevisionName = (name: string): boolean => {
++  const trimmed = name.trim();
++  return trimmed.length > 0 && trimmed.length <= 60;
++};
++
++export const evictIfNeeded = (revisions: Revision[], anchorId: string): Revision[] => {
++  if (revisions.length <= MAX_REVISIONS) return revisions;
++  const sorted = [...revisions].sort((a, b) => a.savedAt.localeCompare(b.savedAt) || a.id.localeCompare(b.id));
++  const kept: Revision[] = [];
++  let toDrop = sorted.length - MAX_REVISIONS;
++  for (const rev of sorted) {
++    if (toDrop > 0 && rev.id !== anchorId) {
++      toDrop -= 1;
++    } else {
++      kept.push(rev);
++    }
++  }
++  return kept;
++};
++
++export const parseStoredRevisions = (raw: unknown): StoredRevisions | null => {
++  if (typeof raw !== "object" || raw === null) return null;
++  const obj = raw as Record<string, unknown>;
++  if (obj.schema !== REVISIONS_SCHEMA) return null;
++  if (typeof obj.anchorId !== "string" || !Array.isArray(obj.revisions)) return null;
++  const revisions: Revision[] = [];
++  for (const entry of obj.revisions) {
++    if (typeof entry !== "object" || entry === null) continue;
++    const r = entry as Record<string, unknown>;
++    if (typeof r.id !== "string" || typeof r.name !== "string" ||
++        typeof r.savedAt !== "string" || typeof r.briefId !== "string" ||
++        typeof r.brief !== "object" || r.brief === null) continue;
++    revisions.push({
++      id: r.id,
++      name: r.name,
++      savedAt: r.savedAt,
++      briefId: r.briefId,
++      brief: normalizeBrief(r.brief as ProjectBrief),
++    });
++  }
++  return { schema: REVISIONS_SCHEMA, anchorId: obj.anchorId, revisions };
++};
++
++// ---- storage access ----
++
++const canUseStorage = (): boolean =>
++  typeof window !== "undefined" && typeof window.localStorage !== "undefined";
++
++const loadAll = (): StoredRevisions | null => {
++  if (!canUseStorage()) return null;
++  try {
++    const raw = window.localStorage.getItem(REVISIONS_KEY);
++    if (!raw) return null;
++    return parseStoredRevisions(JSON.parse(raw));
++  } catch {
++    return null;
++  }
++};
++
++const persist = (store: StoredRevisions): boolean => {
++  if (!canUseStorage()) return false;
++  try {
++    window.localStorage.setItem(REVISIONS_KEY, JSON.stringify(store));
++    return true;
++  } catch {
++    return false;
++  }
++};
++
++let revisionCounter = 0;
++const nextId = (): string => {
++  revisionCounter += 1;
++  return `rev_${String(revisionCounter).padStart(6, "0")}_${Date.now().toString(36)}`;
++};
++
++// ---- public API ----
++
++export const saveRevision = (brief: ProjectBrief, name: string): RevisionResult => {
++  if (!canUseStorage()) return { ok: false, reason: "storage-unavailable" };
++  if (!isValidRevisionName(name)) return { ok: false, reason: "name-blank" };
++  const existing = loadAll();
++  const now = new Date().toISOString();
++  const revision: Revision = {
++    id: nextId(),
++    name: name.trim(),
++    savedAt: now,
++    briefId: brief.id,
++    brief,
++  };
++  let anchorId: string;
++  let revisions: Revision[];
++  if (existing === null) {
++    anchorId = revision.id;
++    revisions = [revision];
++  } else {
++    anchorId = existing.anchorId;
++    const withoutSameName = existing.revisions.filter((r) => r.name !== revision.name);
++    revisions = evictIfNeeded([...withoutSameName, revision], anchorId);
++  }
++  const ok = persist({ schema: REVISIONS_SCHEMA, anchorId, revisions });
++  if (!ok) return { ok: false, reason: "storage-unavailable" };
++  return { ok: true, revision };
++};
++
++export const listRevisions = (): RevisionListResult => {
++  const store = loadAll();
++  if (store === null) {
++    if (!canUseStorage()) return { ok: false, reason: "storage-unavailable" };
++    return { ok: true, revisions: [] };
++  }
++  const sorted = [...store.revisions].sort((a, b) => b.savedAt.localeCompare(a.savedAt) || b.id.localeCompare(a.id));
++  return {
++    ok: true,
++    revisions: sorted.map((r) => ({ id: r.id, name: r.name, savedAt: r.savedAt, briefId: r.briefId })),
++  };
++};
++
++export const loadRevision = (name: string): RevisionResult => {
++  const store = loadAll();
++  if (store === null) return { ok: false, reason: "not-found" };
++  const found = store.revisions.find((r) => r.name === name.trim());
++  if (!found) return { ok: false, reason: "not-found" };
++  return { ok: true, revision: found };
++};
++
++export const deleteRevision = (name: string): RevisionResult => {
++  if (!canUseStorage()) return { ok: false, reason: "storage-unavailable" };
++  const store = loadAll();
++  if (store === null) return { ok: false, reason: "not-found" };
++  const found = store.revisions.find((r) => r.name === name.trim());
++  if (!found) return { ok: false, reason: "not-found" };
++  if (found.id === store.anchorId) return { ok: false, reason: "anchor-protected" };
++  const remaining = store.revisions.filter((r) => r.id !== found.id);
++  const ok = persist({ ...store, revisions: remaining });
++  if (!ok) return { ok: false, reason: "storage-unavailable" };
++  return { ok: true, revision: found };
++};
++
++/**
++ * Restoring loads a revision and saves it as a NEW revision with the same
++ * name plus " (restored)". The original is untouched. This keeps the
++ * history append-only.
++ */
++export const restoreRevision = (name: string): RevisionResult => {
++  const loaded = loadRevision(name);
++  if (!loaded.ok) return loaded;
++  const restoredName = `${loaded.revision.name} (restored)`;
++  return saveRevision(loaded.revision.brief, restoredName);
++};
+diff --git a/app/(site)/brief/types.ts b/app/(site)/brief/types.ts
+index 693169a..a548a51 100644
+--- a/app/(site)/brief/types.ts
++++ b/app/(site)/brief/types.ts
+@@ -252,3 +252,4 @@ export type BriefTemplate = {
+   timeline: TimelineRange;
+   attributes: string[];
+ };
++
+diff --git a/tests/revisions.test.ts b/tests/revisions.test.ts
+new file mode 100644
+index 0000000..fa4110d
+--- /dev/null
++++ b/tests/revisions.test.ts
+@@ -0,0 +1,232 @@
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++import {
++  MAX_REVISIONS,
++  deleteRevision,
++  evictIfNeeded,
++  isValidRevisionName,
++  listRevisions,
++  loadRevision,
++  restoreRevision,
++  saveRevision,
++} from "../app/(site)/brief/revisions";
++import { makeBrief } from "./helpers";
++
++// localStorage mock that actually stores values
++const store = new Map<string, string>();
++
++const localStorageMock = {
++  getItem: (key: string) => store.get(key) ?? null,
++  setItem: (key: string, value: string) => void store.set(key, value),
++  removeItem: (key: string) => void store.delete(key),
++  clear: () => void store.clear(),
++  length: 0,
++  key: (_index: number) => null,
++};
++
++beforeEach(() => {
++  store.clear();
++  vi.stubGlobal("window", { localStorage: localStorageMock });
++});
++
++afterEach(() => {
++  vi.unstubAllGlobals();
++});
++
++describe("isValidRevisionName", () => {
++  it("rejects blank and whitespace-only names", () => {
++    expect(isValidRevisionName("")).toBe(false);
++    expect(isValidRevisionName("   ")).toBe(false);
++  });
++
++  it("rejects names longer than sixty characters", () => {
++    expect(isValidRevisionName("a".repeat(61))).toBe(false);
++    expect(isValidRevisionName("a".repeat(60))).toBe(true);
++  });
++
++  it("accepts normal names", () => {
++    expect(isValidRevisionName("draft")).toBe(true);
++    expect(isValidRevisionName("  version 2  ")).toBe(true);
++  });
++});
++
++describe("evictIfNeeded", () => {
++  it("returns the list unchanged when under the cap", () => {
++    const revisions = Array.from({ length: MAX_REVISIONS - 1 }, (_, i) => ({
++      id: `r${i}`,
++      name: `rev${i}`,
++      savedAt: `2026-01-0${(i % 9) + 1}T00:00:00Z`,
++      briefId: "b",
++      brief: makeBrief(),
++    }));
++    expect(evictIfNeeded(revisions, "r0")).toHaveLength(MAX_REVISIONS - 1);
++  });
++
++  it("drops the oldest non-anchor revision first", () => {
++    const revisions = Array.from({ length: MAX_REVISIONS + 1 }, (_, i) => ({
++      id: `r${i}`,
++      name: `rev${i}`,
++      savedAt: `2026-01-01T00:${String(i).padStart(2, "0")}:00Z`,
++      briefId: "b",
++      brief: makeBrief(),
++    }));
++    const kept = evictIfNeeded(revisions, "r0");
++    expect(kept).toHaveLength(MAX_REVISIONS);
++    expect(kept.some((r) => r.id === "r0")).toBe(true);
++    expect(kept.some((r) => r.id === "r1")).toBe(false);
++  });
++});
++
++describe("saveRevision and listRevisions", () => {
++  it("saves a revision and lists it newest first", () => {
++    const result = saveRevision(makeBrief(), "first draft");
++    expect(result.ok).toBe(true);
++
++    const second = saveRevision(makeBrief(), "after changes");
++    expect(second.ok).toBe(true);
++
++    const list = listRevisions();
++    expect(list.ok).toBe(true);
++    if (!list.ok) return;
++    expect(list.revisions).toHaveLength(2);
++    expect(list.revisions[0].name).toBe("after changes");
++    expect(list.revisions[1].name).toBe("first draft");
++  });
++
++  it("replaces a revision with the same name instead of duplicating", () => {
++    saveRevision(makeBrief(), "draft");
++    const updated = saveRevision(makeBrief({ projectName: "v2" }), "draft");
++    expect(updated.ok).toBe(true);
++
++    const list = listRevisions();
++    expect(list.ok).toBe(true);
++    if (!list.ok) return;
++    expect(list.revisions).toHaveLength(1);
++    expect(list.revisions[0].name).toBe("draft");
++  });
++
++  it("refuses a blank name", () => {
++    const result = saveRevision(makeBrief(), "   ");
++    expect(result.ok).toBe(false);
++    if (result.ok) return;
++    expect(result.reason).toBe("name-blank");
++  });
++});
++
++describe("loadRevision", () => {
++  it("loads a revision by name", () => {
++    const brief = makeBrief({ projectName: "checkpoint" });
++    saveRevision(brief, "checkpoint");
++    const loaded = loadRevision("checkpoint");
++    expect(loaded.ok).toBe(true);
++    if (!loaded.ok) return;
++    expect(loaded.revision.brief.projectName).toBe("checkpoint");
++  });
++
++  it("returns not-found for an unknown name", () => {
++    const result = loadRevision("does not exist");
++    expect(result.ok).toBe(false);
++    if (result.ok) return;
++    expect(result.reason).toBe("not-found");
++  });
++});
++
++describe("deleteRevision", () => {
++  it("deletes a non-anchor revision", () => {
++    saveRevision(makeBrief(), "first");
++    saveRevision(makeBrief(), "second");
++    const result = deleteRevision("second");
++    expect(result.ok).toBe(true);
++
++    const list = listRevisions();
++    expect(list.ok).toBe(true);
++    if (!list.ok) return;
++    expect(list.revisions).toHaveLength(1);
++    expect(list.revisions[0].name).toBe("first");
++  });
++
++  it("refuses to delete the anchor revision", () => {
++    saveRevision(makeBrief(), "the anchor");
++    saveRevision(makeBrief(), "later");
++    const result = deleteRevision("the anchor");
++    expect(result.ok).toBe(false);
++    if (result.ok) return;
++    expect(result.reason).toBe("anchor-protected");
++  });
++});
++
++describe("restoreRevision", () => {
++  it("creates a new revision instead of overwriting the original", () => {
++    saveRevision(makeBrief({ projectName: "original" }), "checkpoint");
++    const restored = restoreRevision("checkpoint");
++    expect(restored.ok).toBe(true);
++    if (!restored.ok) return;
++    expect(restored.revision.name).toBe("checkpoint (restored)");
++
++    const list = listRevisions();
++    expect(list.ok).toBe(true);
++    if (!list.ok) return;
++    expect(list.revisions).toHaveLength(2);
++
++    const original = loadRevision("checkpoint");
++    expect(original.ok).toBe(true);
++    if (!original.ok) return;
++    expect(original.revision.brief.projectName).toBe("original");
++  });
++
++  it("returns not-found when the revision does not exist", () => {
++    const result = restoreRevision("ghost");
++    expect(result.ok).toBe(false);
++    if (result.ok) return;
++    expect(result.reason).toBe("not-found");
++  });
++});
++
++
++describe("revision cap and eviction", () => {
++  it("caps the history at twenty revisions", () => {
++    for (let i = 0; i < 25; i++) {
++      const result = saveRevision(makeBrief({ projectName: `v${i}` }), `rev ${i}`);
++      expect(result.ok).toBe(true);
++    }
++    const list = listRevisions();
++    expect(list.ok).toBe(true);
++    if (!list.ok) return;
++    expect(list.revisions.length).toBeLessThanOrEqual(20);
++  });
++
++  it("keeps the anchor when evicting", () => {
++    saveRevision(makeBrief(), "anchor rev");
++    for (let i = 1; i < 25; i++) {
++      saveRevision(makeBrief(), `rev ${i}`);
++    }
++    const anchor = loadRevision("anchor rev");
++    expect(anchor.ok).toBe(true);
++  });
++
++  it("evicts oldest first when the cap is hit", () => {
++    saveRevision(makeBrief(), "anchor-old");
++    saveRevision(makeBrief(), "soon-gone");
++    for (let i = 3; i <= 22; i++) {
++      saveRevision(makeBrief(), `rev ${i}`);
++    }
++    const anchor = loadRevision("anchor-old");
++    expect(anchor.ok).toBe(true);
++    const evicted = loadRevision("soon-gone");
++    expect(evicted.ok).toBe(false);
++  });
++});
++
++describe("revision listing shape", () => {
++  it("returns metadata without the full brief", () => {
++    saveRevision(makeBrief(), "meta check");
++    const list = listRevisions();
++    expect(list.ok).toBe(true);
++    if (!list.ok) return;
++    const entry = list.revisions[0];
++    expect(entry).toHaveProperty("id");
++    expect(entry).toHaveProperty("name");
++    expect(entry).toHaveProperty("savedAt");
++    expect(entry).toHaveProperty("briefId");
++    expect(entry).not.toHaveProperty("brief");
++  });
++});

@@ -1,0 +1,550 @@
+diff --git a/app/(site)/brief/BriefWorkspace.tsx b/app/(site)/brief/BriefWorkspace.tsx
+index b95e166..52dfdbd 100644
+--- a/app/(site)/brief/BriefWorkspace.tsx
++++ b/app/(site)/brief/BriefWorkspace.tsx
+@@ -8,6 +8,7 @@ import { Checkbox, ChoiceCard, Field, SelectInput, StringListEditor, TagPicker,
+ import { createEmptyBrief, touchBrief } from "./defaults";
+ import { buildBriefCsv, buildBriefText, downloadFile, safeFilename } from "./export";
+ import { createEstimate, estimateSummary, formatCurrency, formatNumber, getMissingDependencies } from "./estimate";
++import { RatesFootnote } from "./RatesFootnote";
+ import { getTemplate, BRIEF_TEMPLATES } from "./templates";
+ import { clearBrief, loadBrief, saveBrief } from "./storage";
+ import { firstErrorStep, issuesForStep, readinessLabel, readinessScore, stepCompletion, validateBrief } from "./validation";
+@@ -237,6 +238,7 @@ export default function BriefWorkspace() {
+       <SectionHeading eyebrow="06 / Review" title="A usable starting point" detail="This summary is an early planning aid, not a final quotation. It gives both teams a focused way to begin." />
+       <div className="brief-readiness"><div className="brief-readiness__score"><strong>{score}</strong><span>/ 100</span></div><div><h3>{readinessLabel(score)}</h3><p>{issues.filter((item) => item.severity === "error").length} items need attention and {issues.filter((item) => item.severity === "warning").length} items would strengthen the conversation.</p></div><div className="brief-progress"><span style={{ width: `${score}%` }} /></div></div>
+       {issues.length ? <div className="brief-review-issues"><h3>Before sending</h3>{BRIEF_STEPS.map((step) => { const stepIssues = issuesForStep(issues, step.id); if (!stepIssues.length) return null; return <div key={step.id}><button type="button" onClick={() => setActiveStep(step.id)}>{step.shortLabel}</button>{stepIssues.map((item) => <p key={`${item.path}-${item.message}`} className={item.severity}>{item.message}</p>)}</div>; })}</div> : <div className="brief-success-message"><strong>The brief is ready for a first discussion.</strong><span>Review the early estimate and export the summary when you are ready.</span></div>}
++      <RatesFootnote brief={brief} />
+       <section className="brief-estimate"><div className="brief-estimate__hero"><p>Indicative project range</p><h3>{formatCurrency(estimate.minCost)} <span>to</span> {formatCurrency(estimate.maxCost)}</h3><span>{estimateSummary(estimate)}</span></div><div className="brief-estimate__facts"><div><span>Effort</span><strong>{formatNumber(estimate.estimatedHours)} hours</strong></div><div><span>Delivery</span><strong>~{estimate.estimatedWeeks} weeks</strong></div><div><span>Risk</span><strong className={`risk-${estimate.risk}`}>{estimate.risk}</strong></div><div><span>Confidence</span><strong>{estimate.confidence}</strong></div></div></section>
+       <section className="brief-milestones"><h3>Working milestones</h3><div>{estimate.milestones.map((milestone) => <article key={milestone.id}><span>{milestone.paymentPercent}%</span><div><strong>{milestone.name}</strong><p>{milestone.weeks} week{milestone.weeks === 1 ? "" : "s"} - {milestone.description}</p><small>{milestone.outputs.join(" / ")}</small></div></article>)}</div></section>
+       <section className="brief-analysis"><div className="brief-analysis__heading"><h3>Scope signals</h3><p>A quick read of the conditions that will shape the engagement.</p></div><div className="brief-analysis__signals">{analysis.signals.map((signal) => <article key={signal.label} className={`status-${signal.status}`}><span>{signal.label}</span><strong>{signal.value}</strong><small>{signal.detail}</small></article>)}</div></section>
+diff --git a/app/(site)/brief/RatesFootnote.tsx b/app/(site)/brief/RatesFootnote.tsx
+new file mode 100644
+index 0000000..afc6584
+--- /dev/null
++++ b/app/(site)/brief/RatesFootnote.tsx
+@@ -0,0 +1,35 @@
++"use client";
++
++import { buildRatesGapText } from "./export";
++import { getStampedVersion, ratesGap, snapshotRates } from "./rates";
++import type { ProjectBrief, RateTable } from "./types";
++
++export type RatesFootnoteProps = {
++  brief: ProjectBrief;
++};
++
++const rateHistory = (): RateTable[] => {
++  const current = snapshotRates();
++  return [
++    { ...current, version: 1 },
++    current,
++  ];
++};
++
++export function RatesFootnote({ brief }: RatesFootnoteProps) {
++  const stamped = getStampedVersion();
++  const report = ratesGap(brief, rateHistory());
++
++  return (
++    <aside className="brief-rates-footnote">
++      <p className="brief-rates-footnote__version">
++        Estimated under rate version {stamped.ok ? stamped.version : "unknown"}
++      </p>
++      {report.ok ? (
++        <p className="brief-rates-footnote__gap">{buildRatesGapText(report.gap)}</p>
++      ) : (
++        <p className="brief-rates-footnote__gap">{report.message}</p>
++      )}
++    </aside>
++  );
++}
+diff --git a/app/(site)/brief/estimate.ts b/app/(site)/brief/estimate.ts
+index b31b0c8..cf93b18 100644
+--- a/app/(site)/brief/estimate.ts
++++ b/app/(site)/brief/estimate.ts
+@@ -1,11 +1,14 @@
+-import { getDeliverable, getService } from "./catalog";
++import { SERVICE_CATALOG, DELIVERABLE_CATALOG, getDeliverable, getService } from "./catalog";
+ import type {
+   BriefEstimate,
++  DeliverableRates,
+   EstimateLine,
+   EstimateMilestone,
+   ProjectBrief,
++  RateTables,
+   RiskLevel,
+   ServiceId,
++  ServiceRates,
+ } from "./types";
+ 
+ const currency = new Intl.NumberFormat("en-IN", {
+@@ -36,26 +39,51 @@ export const getMissingDependencies = (brief: ProjectBrief): Array<{ service: Se
+   });
+ };
+ 
+-const serviceLine = (id: ServiceId, priority: "core" | "supporting"): EstimateLine | null => {
++export const todayRates = (): RateTables => {
++  const services: Record<string, ServiceRates> = {};
++  for (const service of SERVICE_CATALOG) {
++    services[service.id] = {
++      hours: (service.typicalHours[0] + service.typicalHours[1]) / 2,
++      minCost: service.costRange[0],
++      maxCost: service.costRange[1],
++    };
++  }
++  const deliverables: Record<string, DeliverableRates> = {};
++  for (const deliverable of DELIVERABLE_CATALOG) {
++    deliverables[deliverable.id] = {
++      additionalHours: deliverable.additionalHours,
++      additionalCost: deliverable.additionalCost,
++    };
++  }
++  return { services, deliverables };
++};
++
++const serviceLine = (
++  id: ServiceId,
++  priority: "core" | "supporting",
++  rates: RateTables,
++): EstimateLine | null => {
+   const service = getService(id);
+-  if (!service) return null;
++  const rate = rates.services[id];
++  if (!service || !rate) return null;
+   const multiplier = priority === "core" ? 1 : 0.72;
+   return {
+     id: `service-${service.id}`,
+     name: service.name,
+     description: service.summary,
+     category: service.category,
+-    hours: Math.round(((service.typicalHours[0] + service.typicalHours[1]) / 2) * multiplier),
+-    minCost: Math.round(service.costRange[0] * multiplier),
+-    maxCost: Math.round(service.costRange[1] * multiplier),
++    hours: Math.round(rate.hours * multiplier),
++    minCost: Math.round(rate.minCost * multiplier),
++    maxCost: Math.round(rate.maxCost * multiplier),
+     dependencies: service.dependencies.map((dependency) => getService(dependency)?.name ?? dependency),
+   };
+ };
+ 
+-const deliverableLine = (brief: ProjectBrief): EstimateLine[] =>
++const deliverableLine = (brief: ProjectBrief, rates: RateTables): EstimateLine[] =>
+   brief.deliverables.flatMap((selection) => {
+     const deliverable = getDeliverable(selection.id);
+-    if (!deliverable || selection.status === "not-needed") return [];
++    const rate = rates.deliverables[selection.id];
++    if (!deliverable || !rate || selection.status === "not-needed") return [];
+     const quantity = Math.max(1, selection.quantity || deliverable.defaultQuantity);
+     const excess = Math.max(0, quantity - deliverable.defaultQuantity);
+     const considerationMultiplier = selection.status === "considering" ? 0.5 : 1;
+@@ -67,9 +95,9 @@ const deliverableLine = (brief: ProjectBrief): EstimateLine[] =>
+         ? "An optional output included for planning visibility."
+         : `Additional ${deliverable.unitLabel} volume beyond the standard scope.`,
+       category: deliverable.category,
+-      hours: Math.round((excess * deliverable.additionalHours + (selection.status === "considering" ? deliverable.additionalHours || 8 : 0)) * considerationMultiplier),
+-      minCost: Math.round((excess * deliverable.additionalCost + (selection.status === "considering" ? deliverable.additionalCost || 22000 : 0)) * considerationMultiplier),
+-      maxCost: Math.round((excess * deliverable.additionalCost * 1.35 + (selection.status === "considering" ? (deliverable.additionalCost || 22000) * 1.35 : 0)) * considerationMultiplier),
++      hours: Math.round((excess * rate.additionalHours + (selection.status === "considering" ? rate.additionalHours || 8 : 0)) * considerationMultiplier),
++      minCost: Math.round((excess * rate.additionalCost + (selection.status === "considering" ? rate.additionalCost || 22000 : 0)) * considerationMultiplier),
++      maxCost: Math.round((excess * rate.additionalCost * 1.35 + (selection.status === "considering" ? (rate.additionalCost || 22000) * 1.35 : 0)) * considerationMultiplier),
+       dependencies: deliverable.includedWith.map((id) => getService(id)?.name ?? id),
+     }];
+   });
+@@ -188,11 +216,11 @@ const buildExclusions = (brief: ProjectBrief): string[] => {
+   return unique(exclusions);
+ };
+ 
+-export const createEstimate = (brief: ProjectBrief): BriefEstimate => {
++export const createEstimate = (brief: ProjectBrief, tables: RateTables = todayRates()): BriefEstimate => {
+   const baseLines = brief.selectedServices
+-    .map((service) => serviceLine(service.id, service.priority))
++    .map((service) => serviceLine(service.id, service.priority, tables))
+     .filter((line): line is EstimateLine => line !== null);
+-  const lines = [...baseLines, ...deliverableLine(brief)];
++  const lines = [...baseLines, ...deliverableLine(brief, tables)];
+   const baseHours = lines.reduce((total, line) => total + line.hours, 0);
+   const baseMin = lines.reduce((total, line) => total + line.minCost, 0);
+   const baseMax = lines.reduce((total, line) => total + line.maxCost, 0);
+diff --git a/app/(site)/brief/export.ts b/app/(site)/brief/export.ts
+index 3f73b38..5e6a469 100644
+--- a/app/(site)/brief/export.ts
++++ b/app/(site)/brief/export.ts
+@@ -1,7 +1,7 @@
+ import { getDeliverable, getService } from "./catalog";
+ import { createEstimate, formatCurrency, formatNumber } from "./estimate";
+ import { readinessLabel, readinessScore, validateBrief } from "./validation";
+-import type { ProjectBrief } from "./types";
++import type { ProjectBrief, RatesGap } from "./types";
+ 
+ const escapeCsv = (value: string | number | boolean): string => {
+   const text = String(value);
+@@ -12,6 +12,21 @@ const line = (label: string, value: string): string => `${label}: ${value || "No
+ 
+ const list = (items: string[]): string => items.length ? items.map((item) => `- ${item}`).join("\n") : "- Not provided";
+ 
++/**
++ * Original next to today: one line per changed service plus a total line,
++ * or the exact words "Rates unchanged" when the numbers did not move.
++ */
++export const buildRatesGapText = (gap: RatesGap): string => {
++  const out: string[] = [];
++  for (const line of gap.changedLines) {
++    out.push(`${line.name}: ${line.hoursThen} -> ${line.hoursNow} hours`);
++  }
++  if (out.length === 0) return "Rates unchanged";
++  out.unshift("Rates then and now");
++  out.push(`Total: ${gap.hoursThen} -> ${gap.hoursNow} hours`);
++  return out.join("\n");
++};
++
+ export const buildBriefText = (brief: ProjectBrief): string => {
+   const estimate = createEstimate(brief);
+   const validation = validateBrief(brief);
+diff --git a/app/(site)/brief/rates.ts b/app/(site)/brief/rates.ts
+new file mode 100644
+index 0000000..2d36cab
+--- /dev/null
++++ b/app/(site)/brief/rates.ts
+@@ -0,0 +1,164 @@
++import { createEstimate, todayRates } from "./estimate";
++import type { BriefEstimate, ProjectBrief, RateStamp, RateTable, RatesGap } from "./types";
++
++/**
++ * Rate versioning for the brief engine. A saved brief carries a stamp with
++ * the rate version it was estimated under, stored under its own storage
++ * slot. The stamp is only ever replaced by an explicit restamp, so a later
++ * rate edit never moves a saved brief's numbers. The gap report always
++ * reads original first, newest second.
++ */
++
++export const LEGACY_RATES_VERSION = 1;
++export const CURRENT_RATES_VERSION = 2;
++
++const STAMPS_KEY = "dt-rate-stamps";
++
++const storageThere = (): boolean => {
++  if (typeof window === "undefined") return false;
++  try {
++    void window.localStorage.length;
++    return true;
++  } catch {
++    return false;
++  }
++};
++
++interface StoredStamp {
++  briefId: string;
++  version: number;
++  stampedAt: string;
++}
++
++const validStamp = (raw: unknown): StoredStamp | null => {
++  if (typeof raw !== "object" || raw === null) return null;
++  const parsed = raw as Partial<StoredStamp>;
++  if (typeof parsed.briefId !== "string") return null;
++  if (typeof parsed.stampedAt !== "string") return null;
++  if (typeof parsed.version !== "number" || !Number.isFinite(parsed.version)) return null;
++  return { briefId: parsed.briefId, version: parsed.version, stampedAt: parsed.stampedAt };
++};
++
++/** All stamps live in one slot as a list, one entry per brief. */
++const readAllStamps = (): StoredStamp[] => {
++  try {
++    const raw = window.localStorage.getItem(STAMPS_KEY);
++    if (raw === null) return [];
++    const parsed = JSON.parse(raw) as unknown;
++    if (!Array.isArray(parsed)) return [];
++    return parsed.map(validStamp).filter((entry): entry is StoredStamp => entry !== null);
++  } catch {
++    return [];
++  }
++};
++
++const persistStamps = (stamps: StoredStamp[]): boolean => {
++  try {
++    window.localStorage.setItem(STAMPS_KEY, JSON.stringify(stamps));
++    return true;
++  } catch {
++    return false;
++  }
++};
++
++const currentStamp = (): StoredStamp | null => {
++  const all = readAllStamps();
++  return all.length === 0 ? null : all[all.length - 1];
++};
++
++/** Indexes a history by version so lookups do not scan. */
++const indexTables = (history: RateTable[]): Map<number, RateTable> => {
++  const index = new Map<number, RateTable>();
++  for (const table of history) index.set(table.version, table);
++  return index;
++};
++
++const latestVersionIn = (history: RateTable[]): number => {
++  let newest = 0;
++  for (const table of history) {
++    if (table.version > newest) newest = table.version;
++  }
++  return newest;
++};
++
++export const snapshotRates = (): RateTable => ({ ...todayRates(), version: CURRENT_RATES_VERSION });
++
++export const tableFor = (history: RateTable[], version: number): RateTable | null =>
++  indexTables(history).get(version) ?? null;
++
++export const getStampedVersion = ():
++  | { ok: true; version: number }
++  | { ok: false; reason: "storage-unavailable"; message: string } => {
++  if (!storageThere()) {
++    return { ok: false, reason: "storage-unavailable", message: "Rate stamps are not reachable." };
++  }
++  const stamp = currentStamp();
++  return { ok: true, version: stamp === null ? LEGACY_RATES_VERSION : stamp.version };
++};
++
++export const stampRates = (
++  briefId: string,
++  version: number,
++  history: RateTable[],
++): { ok: true; stamp: RateStamp } | { ok: false; reason: "version-unknown" | "storage-unavailable"; message: string } => {
++  if (!storageThere()) {
++    return { ok: false, reason: "storage-unavailable", message: "Rate stamps are not reachable." };
++  }
++  if (!indexTables(history).has(version)) {
++    return { ok: false, reason: "version-unknown", message: `Version ${version} has no rate table.` };
++  }
++  const stamp: StoredStamp = { briefId, version, stampedAt: new Date().toISOString() };
++  const others = readAllStamps().filter((entry) => entry.briefId !== briefId);
++  if (!persistStamps([...others, stamp])) {
++    return { ok: false, reason: "storage-unavailable", message: "The stamp could not be written." };
++  }
++  return { ok: true, stamp };
++};
++
++export const estimateAtRates = (brief: ProjectBrief, table: RateTable): BriefEstimate =>
++  createEstimate(brief, { services: table.services, deliverables: table.deliverables });
++
++export const ratesGap = (
++  brief: ProjectBrief,
++  history: RateTable[],
++):
++  | { ok: true; gap: RatesGap }
++  | { ok: false; reason: "version-unknown" | "storage-unavailable"; message: string } => {
++  if (!storageThere()) {
++    return { ok: false, reason: "storage-unavailable", message: "Rate stamps are not reachable." };
++  }
++  const index = indexTables(history);
++  const stamp = currentStamp();
++  const versionThen = stamp === null ? LEGACY_RATES_VERSION : stamp.version;
++  const thenTable = index.get(versionThen);
++  if (thenTable === undefined) {
++    return { ok: false, reason: "version-unknown", message: `Version ${versionThen} has no rate table.` };
++  }
++  const versionNow = latestVersionIn(history);
++  const nowTable = index.get(versionNow);
++  if (nowTable === undefined) {
++    return { ok: false, reason: "version-unknown", message: `Version ${versionNow} has no rate table.` };
++  }
++  const original = estimateAtRates(brief, thenTable);
++  const current = estimateAtRates(brief, nowTable);
++  const changedLines = [];
++  for (const line of current.lines) {
++    const before = original.lines.find((candidate) => candidate.id === line.id);
++    if (before === undefined || before.hours === line.hours) continue;
++    changedLines.push({ id: line.id, name: line.name, hoursThen: before.hours, hoursNow: line.hours });
++  }
++  return {
++    ok: true,
++    gap: {
++      versionThen,
++      versionNow,
++      hoursThen: original.estimatedHours,
++      hoursNow: current.estimatedHours,
++      minThen: original.minCost,
++      minNow: current.minCost,
++      maxThen: original.maxCost,
++      maxNow: current.maxCost,
++      changedLines,
++    },
++  };
++};
+diff --git a/app/(site)/brief/types.ts b/app/(site)/brief/types.ts
+index 693169a..0a0d957 100644
+--- a/app/(site)/brief/types.ts
++++ b/app/(site)/brief/types.ts
+@@ -252,3 +252,48 @@ export type BriefTemplate = {
+   timeline: TimelineRange;
+   attributes: string[];
+ };
++
++export interface ServiceRates {
++  maxCost: number;
++  minCost: number;
++  hours: number;
++}
++
++export type DeliverableRates = {
++  additionalHours: number;
++  additionalCost: number;
++};
++
++export interface RateTables {
++  deliverables: Record<string, DeliverableRates>;
++  services: Record<string, ServiceRates>;
++}
++
++export type RateTable = RateTables & {
++  version: number;
++};
++
++export type RateStamp = {
++  briefId: string;
++  version: number;
++  stampedAt: string;
++};
++
++export type RatesGapLine = {
++  id: string;
++  name: string;
++  hoursThen: number;
++  hoursNow: number;
++};
++
++export type RatesGap = {
++  versionThen: number;
++  versionNow: number;
++  hoursThen: number;
++  hoursNow: number;
++  minThen: number;
++  minNow: number;
++  maxThen: number;
++  maxNow: number;
++  changedLines: RatesGapLine[];
++};
+diff --git a/tests/rates.test.ts b/tests/rates.test.ts
+new file mode 100644
+index 0000000..85b85d0
+--- /dev/null
++++ b/tests/rates.test.ts
+@@ -0,0 +1,118 @@
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++import { createEstimate } from "../app/(site)/brief/estimate";
++import { buildRatesGapText } from "../app/(site)/brief/export";
++import {
++  CURRENT_RATES_VERSION,
++  LEGACY_RATES_VERSION,
++  estimateAtRates,
++  getStampedVersion,
++  ratesGap,
++  snapshotRates,
++  stampRates,
++  tableFor,
++} from "../app/(site)/brief/rates";
++import type { RateTable } from "../app/(site)/brief/types";
++import { makeBrief, service } from "./helpers";
++
++const backing = new Map<string, string>();
++const storageStub = {
++  getItem: (key: string) => backing.get(key) ?? null,
++  setItem: (key: string, value: string) => void backing.set(key, value),
++  removeItem: (key: string) => void backing.delete(key),
++  clear: () => backing.clear(),
++  length: 0,
++  key: (_index: number) => null,
++};
++
++beforeEach(() => {
++  backing.clear();
++  vi.stubGlobal("window", { localStorage: storageStub });
++});
++
++afterEach(() => {
++  vi.unstubAllGlobals();
++});
++
++const sampleBrief = () =>
++  makeBrief({ projectName: "Alt rates", selectedServices: [service("naming"), service("video-production")] });
++
++const tables = (): RateTable[] => {
++  const current = snapshotRates();
++  return [
++    { ...current, version: LEGACY_RATES_VERSION },
++    current,
++    {
++      ...current,
++      version: 3,
++      services: { ...current.services, naming: { ...current.services.naming, hours: current.services.naming.hours + 6 } },
++    },
++  ];
++};
++
++describe("table lookups", () => {
++  it("snapshots at the current version", () => {
++    expect(snapshotRates().version).toBe(CURRENT_RATES_VERSION);
++  });
++
++  it("misses versions that were never registered", () => {
++    expect(tableFor(tables(), 77)).toBe(null);
++  });
++});
++
++describe("stamp lifecycle", () => {
++  it("starts at legacy", () => {
++    const read = getStampedVersion();
++    expect(read.ok && read.version).toBe(LEGACY_RATES_VERSION);
++  });
++
++  it("holds the last explicit stamp", () => {
++    stampRates("alt-brief", 3, tables());
++    const read = getStampedVersion();
++    expect(read.ok && read.version).toBe(3);
++  });
++
++  it("rejects unknown versions without writing", () => {
++    expect(stampRates("alt-brief", 5, tables()).ok).toBe(false);
++    const read = getStampedVersion();
++    expect(read.ok && read.version).toBe(LEGACY_RATES_VERSION);
++  });
++});
++
++describe("versioned estimates", () => {
++  it("matches today's numbers exactly", () => {
++    expect(estimateAtRates(sampleBrief(), snapshotRates())).toEqual(createEstimate(sampleBrief()));
++  });
++
++  it("follows the table it is given", () => {
++    const list = tables();
++    expect(estimateAtRates(sampleBrief(), list[2]).estimatedHours).toBeGreaterThan(
++      estimateAtRates(sampleBrief(), list[0]).estimatedHours,
++    );
++  });
++});
++
++describe("gap reporting", () => {
++  it("reads as unchanged while numbers agree", () => {
++    const report = ratesGap(sampleBrief(), tables().slice(0, 2));
++    if (!report.ok) return;
++    expect(buildRatesGapText(report.gap)).toBe("Rates unchanged");
++  });
++
++  it("puts the stamped estimate first", () => {
++    const list = tables();
++    stampRates("alt-brief", 2, list);
++    const report = ratesGap(sampleBrief(), list);
++    if (!report.ok) return;
++    expect(report.gap.versionThen).toBe(2);
++    expect(report.gap.versionNow).toBe(3);
++    expect(buildRatesGapText(report.gap)).toContain("Total:");
++  });
++
++  it("leaves the stamp alone while reporting", () => {
++    const list = tables();
++    stampRates("alt-brief", 2, list);
++    ratesGap(sampleBrief(), list);
++    const read = getStampedVersion();
++    expect(read.ok && read.version).toBe(2);
++  });
++});

@@ -1,0 +1,53 @@
+[judge]
+mode = "individual"
+samples = 1
+guard = "penalize"
+isolated = true
+timeout = 300
+prompt_template = "judge-prompt.md"
+files = ["submission/change.diff", "submission/changed-files.txt"]
+
+[[criterion]]
+id = "trail-is-append-only"
+description = "Does transitionBrief in lifecycle.ts append the new event to the stored events array instead of replacing the stored events? (Judge the transitionBrief function in lifecycle.ts.)"
+type = "binary"
+weight = 3
+
+[criterion.annotations]
+blocker = false
+
+[[criterion]]
+id = "moves-are-declared-in-one-place"
+description = "Is the list of allowed status moves written in one place in lifecycle.ts, as an explicit list or table? (Judge the move validation in lifecycle.ts.)"
+type = "binary"
+weight = 2
+
+[criterion.annotations]
+blocker = false
+
+[[criterion]]
+id = "frozen-numbers-are-stored"
+description = "Does the frozen estimate path in lifecycle.ts store the numbers at sign off and return them unchanged on later reads, rather than recomputing them on each call? (Judge the frozen estimate path in lifecycle.ts.)"
+type = "binary"
+weight = 2
+
+[criterion.annotations]
+blocker = false
+
+[[criterion]]
+id = "status-is-persisted"
+description = "Is the current status persisted in storage by the write path in lifecycle.ts, rather than held only in a module-level variable, so a page reload keeps it? (Judge the write path in lifecycle.ts.)"
+type = "binary"
+weight = 2
+
+[criterion.annotations]
+blocker = false
+
+[[criterion]]
+id = "added-tests-clear-stored-state"
+description = "Do the tests added under tests/ clear the stored lifecycle data between cases so results do not depend on test order? (Judge the new test files under tests/.)"
+type = "binary"
+weight = 1
+
+[criterion.annotations]
+blocker = false

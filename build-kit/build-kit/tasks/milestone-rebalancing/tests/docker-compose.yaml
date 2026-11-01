@@ -1,0 +1,5 @@
+# The verifier takes its network down before any graded command runs.
+services:
+  main:
+    cap_add:
+      - NET_ADMIN

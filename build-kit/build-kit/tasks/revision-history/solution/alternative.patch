@@ -1,0 +1,561 @@
+diff --git a/app/(site)/brief/BriefWorkspace.tsx b/app/(site)/brief/BriefWorkspace.tsx
+index b95e166..2e26d06 100644
+--- a/app/(site)/brief/BriefWorkspace.tsx
++++ b/app/(site)/brief/BriefWorkspace.tsx
+@@ -6,6 +6,8 @@ import { BRAND_ATTRIBUTES, BRIEF_STEPS, BUDGET_RANGES, CONTACT_ROLES, DEFAULT_OB
+ import { DELIVERABLE_CATALOG, SERVICE_CATALOG, serviceCategories } from "./catalog";
+ import { Checkbox, ChoiceCard, Field, SelectInput, StringListEditor, TagPicker, TextArea, TextInput } from "./BriefFormControls";
+ import { createEmptyBrief, touchBrief } from "./defaults";
++import { deleteRevision, listRevisions, restoreRevision, saveRevision } from "./revisions";
++import { SnapshotList } from "./SnapshotList";
+ import { buildBriefCsv, buildBriefText, downloadFile, safeFilename } from "./export";
+ import { createEstimate, estimateSummary, formatCurrency, formatNumber, getMissingDependencies } from "./estimate";
+ import { getTemplate, BRIEF_TEMPLATES } from "./templates";
+@@ -39,10 +41,13 @@ export default function BriefWorkspace() {
+   const [hydrated, setHydrated] = useState(false);
+   const [savedAt, setSavedAt] = useState<string | null>(null);
+   const [showTemplates, setShowTemplates] = useState(false);
++  const [snapshotLabel, setSnapshotLabel] = useState("");
++  const [historyEntries, setHistoryEntries] = useState<import("./revisions").RevisionMeta[]>([]);
+   const [serviceFilter, setServiceFilter] = useState("All");
+   const [submitted, setSubmitted] = useState(false);
+ 
+   useEffect(() => {
++    reloadHistory();
+     const saved = loadBrief();
+     if (saved) {
+       setBrief(saved);
+@@ -137,6 +142,28 @@ export default function BriefWorkspace() {
+     setSubmitted(true);
+   };
+ 
++  const reloadHistory = () => {
++    const result = listRevisions();
++    if (result.ok) setHistoryEntries(result.revisions);
++  };
++
++  const commitSnapshot = () => {
++    if (!snapshotLabel.trim()) return;
++    saveRevision(brief, snapshotLabel);
++    setSnapshotLabel("");
++    reloadHistory();
++  };
++
++  const revertToSnapshot = (name: string) => {
++    restoreRevision(name);
++    reloadHistory();
++  };
++
++  const removeSnapshot = (name: string) => {
++    deleteRevision(name);
++    reloadHistory();
++  };
++
+   const resetBrief = () => {
+     clearBrief();
+     setBrief(createEmptyBrief());
+@@ -244,7 +271,8 @@ export default function BriefWorkspace() {
+       <div className="brief-review-grid"><section><h3>Questions to resolve</h3><ul>{analysis.strategicQuestions.map((question) => <li key={question}>{question}</li>)}</ul></section><section><h3>First meeting agenda</h3><ul>{analysis.reviewAgenda.map((agendaItem) => <li key={agendaItem}>{agendaItem}</li>)}</ul></section></div>
+       <div className="brief-review-grid"><section><h3>Planning assumptions</h3><ul>{estimate.assumptions.map((assumption) => <li key={assumption}>{assumption}</li>)}</ul></section><section><h3>Outside this estimate</h3><ul>{estimate.exclusions.map((exclusion) => <li key={exclusion}>{exclusion}</li>)}</ul></section></div>
+       <Checkbox checked={brief.consentToContact} onChange={(checked) => update("consentToContact", checked)} label="I am happy for Double Tap to contact me about this project." detail="Your draft stays in this browser until you download or share it." />
+-      <div className="brief-export-actions"><Button tone="secondary" onClick={downloadText}>Download brief (.txt)</Button><Button tone="secondary" onClick={downloadCsv}>Download summary (.csv)</Button><Button onClick={handleSubmit}>Prepare for conversation</Button></div>
++      <SnapshotList label={snapshotLabel} onLabelChange={setSnapshotLabel} onCommit={commitSnapshot} entries={historyEntries} onRevert={revertToSnapshot} onRemove={removeSnapshot} />
++<div className="brief-export-actions"><Button tone="secondary" onClick={downloadText}>Download brief (.txt)</Button><Button tone="secondary" onClick={downloadCsv}>Download summary (.csv)</Button><Button onClick={handleSubmit}>Prepare for conversation</Button></div>
+       {submitted ? (issues.some((item) => item.severity === "error") ? <div className="brief-submit-message brief-submit-message--warning">Please complete the required items before sending this brief.</div> : <div className="brief-submit-message">Brief prepared. Download the project summary or use it to begin the conversation with Double Tap.</div>) : null}
+     </div>
+   );
+diff --git a/app/(site)/brief/SnapshotList.tsx b/app/(site)/brief/SnapshotList.tsx
+new file mode 100644
+index 0000000..cab8481
+--- /dev/null
++++ b/app/(site)/brief/SnapshotList.tsx
+@@ -0,0 +1,63 @@
++"use client";
++
++import type { RevisionMeta } from "./revisions";
++
++export type SnapshotListProps = {
++  label: string;
++  onLabelChange: (value: string) => void;
++  onCommit: () => void;
++  entries: RevisionMeta[];
++  onRevert: (name: string) => void;
++  onRemove: (name: string) => void;
++};
++
++export function SnapshotList({
++  label,
++  onLabelChange,
++  onCommit,
++  entries,
++  onRevert,
++  onRemove,
++}: SnapshotListProps) {
++  return (
++    <section className="brief-history">
++      <h3>History</h3>
++      <div className="brief-history__save">
++        <input
++          type="text"
++          value={label}
++          onChange={(event) => onLabelChange(event.target.value)}
++          placeholder="Snapshot label"
++        />
++        <button type="button" onClick={onCommit}>
++          Snapshot
++        </button>
++      </div>
++      {entries.length > 0 ? (
++        <ul className="brief-history__list">
++          {entries.map((entry) => (
++            <li key={entry.id}>
++              <span>{entry.name}</span>
++              <small>
++                {new Date(entry.savedAt).toLocaleString("en-IN", {
++                  hour: "2-digit",
++                  minute: "2-digit",
++                })}
++              </small>
++              <div>
++                <button type="button" onClick={() => onRevert(entry.name)}>
++                  Revert
++                </button>
++                <button type="button" onClick={() => onRemove(entry.name)}>
++                  Remove
++                </button>
++              </div>
++            </li>
++          ))}
++        </ul>
++      ) : (
++        <p className="brief-history__empty">No snapshots yet.</p>
++      )}
++    </section>
++  );
++}
+diff --git a/app/(site)/brief/export.ts b/app/(site)/brief/export.ts
+index 3f73b38..806d53e 100644
+--- a/app/(site)/brief/export.ts
++++ b/app/(site)/brief/export.ts
+@@ -2,6 +2,7 @@ import { getDeliverable, getService } from "./catalog";
+ import { createEstimate, formatCurrency, formatNumber } from "./estimate";
+ import { readinessLabel, readinessScore, validateBrief } from "./validation";
+ import type { ProjectBrief } from "./types";
++import type { RevisionMeta } from "./revisions";
+ 
+ const escapeCsv = (value: string | number | boolean): string => {
+   const text = String(value);
+@@ -142,3 +143,14 @@ export const safeFilename = (value: string): string => {
+   const result = value.trim().toLowerCase().replaceAll(/[^a-z0-9]+/g, "-").replaceAll(/^-|-$/g, "");
+   return result || "project-brief";
+ };
++
++export const buildRevisionListText = (revisions: RevisionMeta[]): string => {
++  if (revisions.length === 0) return "No saved revisions";
++  const rows: string[] = [];
++  for (const revision of revisions) {
++    const stamp = revision.savedAt.slice(0, 10);
++    rows.push(`* ${revision.name} [${stamp}]`);
++  }
++  const body = rows.join("\n");
++  return `Saved history\n${body}`;
++};
+diff --git a/app/(site)/brief/revisions.ts b/app/(site)/brief/revisions.ts
+new file mode 100644
+index 0000000..2ca5f86
+--- /dev/null
++++ b/app/(site)/brief/revisions.ts
+@@ -0,0 +1,254 @@
++import { normalizeBrief } from "./storage";
++import type { ProjectBrief } from "./types";
++
++/**
++ * Named revision history for the brief workspace, kept as one storage slot
++ * per revision plus a small index. Every write rebuilds the index and
++ * deletes the slots of any revision that fell out of the history, so
++ * storage never keeps data the list no longer shows.
++ */
++
++export const MAX_REVISIONS = 20;
++
++export type RevisionMeta = {
++  id: string;
++  name: string;
++  savedAt: string;
++  briefId: string;
++};
++
++export type Revision = RevisionMeta & {
++  brief: ProjectBrief;
++};
++
++export type RevisionResult =
++  | { ok: true; revision: Revision }
++  | { ok: false; reason: "storage-unavailable" | "name-blank" | "not-found" | "anchor-protected" | "history-full" };
++
++export type RevisionListResult =
++  | { ok: true; revisions: RevisionMeta[] }
++  | { ok: false; reason: "storage-unavailable" };
++
++const INDEX_KEY = "double-tap-revision-index";
++const SLOT_PREFIX = "double-tap-rev-";
++
++type IndexEntry = { id: string; key: string };
++
++type Index = {
++  anchorId: string;
++  entries: IndexEntry[];
++};
++
++const storageAlive = (): boolean => {
++  if (typeof window === "undefined") return false;
++  try {
++    void window.localStorage.length;
++    return true;
++  } catch {
++    return false;
++  }
++};
++
++const cleanName = (name: string): string | null => {
++  const label = name.trim();
++  return label.length === 0 || label.length > 60 ? null : label;
++};
++
++let minted = 0;
++const mintId = (): string => {
++  minted += 1;
++  return `r-${Date.now().toString(36)}-${String(minted).padStart(4, "0")}`;
++};
++
++const readSlot = (slot: string): Revision | null => {
++  try {
++    const raw = window.localStorage.getItem(SLOT_PREFIX + slot);
++    if (raw === null) return null;
++    const parsed = JSON.parse(raw) as Record<string, unknown>;
++    if (typeof parsed !== "object" || parsed === null) return null;
++    if (
++      typeof parsed.id !== "string" ||
++      typeof parsed.name !== "string" ||
++      typeof parsed.savedAt !== "string" ||
++      typeof parsed.briefId !== "string" ||
++      typeof parsed.brief !== "object" ||
++      parsed.brief === null
++    ) {
++      return null;
++    }
++    return {
++      id: parsed.id,
++      name: parsed.name,
++      savedAt: parsed.savedAt,
++      briefId: parsed.briefId,
++      brief: normalizeBrief(parsed.brief as ProjectBrief),
++    };
++  } catch {
++    return null;
++  }
++};
++
++const writeSlot = (revision: Revision): boolean => {
++  try {
++    window.localStorage.setItem(SLOT_PREFIX + revision.id, JSON.stringify(revision));
++    return true;
++  } catch {
++    return false;
++  }
++};
++
++const dropSlot = (id: string): void => {
++  try {
++    window.localStorage.removeItem(SLOT_PREFIX + id);
++  } catch {
++    // A slot that cannot be removed is ignored; the index is the truth.
++  }
++};
++
++const loadIndex = (): Index | null => {
++  try {
++    const raw = window.localStorage.getItem(INDEX_KEY);
++    if (raw === null) return null;
++    const parsed = JSON.parse(raw) as Record<string, unknown>;
++    if (typeof parsed !== "object" || parsed === null) return null;
++    if (typeof parsed.anchorId !== "string" || !Array.isArray(parsed.entries)) return null;
++    const entries: IndexEntry[] = [];
++    for (const item of parsed.entries) {
++      if (typeof item !== "object" || item === null) continue;
++      const entry = item as Record<string, unknown>;
++      if (typeof entry.id !== "string" || typeof entry.key !== "string") continue;
++      entries.push({ id: entry.id, key: entry.key });
++    }
++    return { anchorId: parsed.anchorId, entries };
++  } catch {
++    return null;
++  }
++};
++
++const saveIndex = (index: Index): boolean => {
++  try {
++    window.localStorage.setItem(INDEX_KEY, JSON.stringify(index));
++    return true;
++  } catch {
++    return false;
++  }
++};
++
++/** Splits into what stays and what goes, counting only non-anchor drops. */
++const splitForLimit = (revisions: Revision[], anchorId: string): { kept: Revision[]; dropped: Revision[] } => {
++  const byAge = [...revisions].sort((a, b) => a.savedAt.localeCompare(b.savedAt) || a.id.localeCompare(b.id));
++  const spare = byAge.length - MAX_REVISIONS;
++  const droppedIds = new Set<string>();
++  let budget = spare > 0 ? spare : 0;
++  for (const candidate of byAge) {
++    if (budget > 0 && candidate.id !== anchorId) {
++      droppedIds.add(candidate.id);
++      budget -= 1;
++    }
++  }
++  return {
++    kept: revisions.filter((revision) => !droppedIds.has(revision.id)),
++    dropped: revisions.filter((revision) => droppedIds.has(revision.id)),
++  };
++};
++
++const collectAll = (index: Index): Revision[] => {
++  const loaded: Revision[] = [];
++  for (const entry of index.entries) {
++    const revision = readSlot(entry.key);
++    if (revision !== null) loaded.push(revision);
++  }
++  return loaded;
++};
++
++export const saveRevision = (brief: ProjectBrief, name: string): RevisionResult => {
++  if (!storageAlive()) return { ok: false, reason: "storage-unavailable" };
++  const label = cleanName(name);
++  if (label === null) return { ok: false, reason: "name-blank" };
++
++  const index = loadIndex();
++  const revision: Revision = {
++    id: mintId(),
++    name: label,
++    savedAt: new Date().toISOString(),
++    briefId: brief.id,
++    brief,
++  };
++
++  let anchorId: string;
++  let all: Revision[];
++  if (index === null) {
++    anchorId = revision.id;
++    all = [];
++  } else {
++    anchorId = index.anchorId;
++    all = collectAll(index);
++  }
++  const existing = all.filter((current) => current.name !== label);
++
++  const { kept } = splitForLimit([...existing, revision], anchorId);
++  if (!writeSlot(revision)) return { ok: false, reason: "storage-unavailable" };
++
++  // Slots for revisions that left the list (same-name replacement or
++  // eviction) are deleted so storage matches what listRevisions shows.
++  const keptIds = new Set(kept.map((current) => current.id));
++  for (const current of all) {
++    if (!keptIds.has(current.id)) dropSlot(current.id);
++  }
++
++  if (!saveIndex({ anchorId, entries: kept.map((current) => ({ id: current.id, key: current.id })) })) {
++    return { ok: false, reason: "storage-unavailable" };
++  }
++  return { ok: true, revision };
++};
++
++export const listRevisions = (): RevisionListResult => {
++  if (!storageAlive()) return { ok: false, reason: "storage-unavailable" };
++  const index = loadIndex();
++  if (index === null) return { ok: true, revisions: [] };
++  const newestFirst = [...collectAll(index)].sort(
++    (a, b) => b.savedAt.localeCompare(a.savedAt) || b.id.localeCompare(a.id),
++  );
++  return {
++    ok: true,
++    revisions: newestFirst.map(({ id, name, savedAt, briefId }) => ({ id, name, savedAt, briefId })),
++  };
++};
++
++export const loadRevision = (name: string): RevisionResult => {
++  if (!storageAlive()) return { ok: false, reason: "storage-unavailable" };
++  const index = loadIndex();
++  if (index === null) return { ok: false, reason: "not-found" };
++  const wanted = name.trim();
++  for (const entry of index.entries) {
++    const revision = readSlot(entry.key);
++    if (revision !== null && revision.name === wanted) return { ok: true, revision };
++  }
++  return { ok: false, reason: "not-found" };
++};
++
++export const deleteRevision = (name: string): RevisionResult => {
++  if (!storageAlive()) return { ok: false, reason: "storage-unavailable" };
++  const index = loadIndex();
++  if (index === null) return { ok: false, reason: "not-found" };
++  const wanted = name.trim();
++  for (const entry of index.entries) {
++    const revision = readSlot(entry.key);
++    if (revision !== null && revision.name === wanted) {
++      if (revision.id === index.anchorId) return { ok: false, reason: "anchor-protected" };
++      dropSlot(revision.id);
++      const remaining = index.entries.filter((current) => current.id !== revision.id);
++      if (!saveIndex({ anchorId: index.anchorId, entries: remaining })) {
++        return { ok: false, reason: "storage-unavailable" };
++      }
++      return { ok: true, revision };
++    }
++  }
++  return { ok: false, reason: "not-found" };
++};
++
++export const restoreRevision = (name: string): RevisionResult => {
++  const loaded = loadRevision(name);
++  if (!loaded.ok) return loaded;
++  return saveRevision(loaded.revision.brief, `${loaded.revision.name} (restored)`);
++};
+diff --git a/app/(site)/brief/types.ts b/app/(site)/brief/types.ts
+index 693169a..a548a51 100644
+--- a/app/(site)/brief/types.ts
++++ b/app/(site)/brief/types.ts
+@@ -252,3 +252,4 @@ export type BriefTemplate = {
+   timeline: TimelineRange;
+   attributes: string[];
+ };
++
+diff --git a/tests/revisions.test.ts b/tests/revisions.test.ts
+new file mode 100644
+index 0000000..5b1a832
+--- /dev/null
++++ b/tests/revisions.test.ts
+@@ -0,0 +1,124 @@
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++import {
++  MAX_REVISIONS,
++  deleteRevision,
++  listRevisions,
++  loadRevision,
++  restoreRevision,
++  saveRevision,
++} from "../app/(site)/brief/revisions";
++import { buildRevisionListText } from "../app/(site)/brief/export";
++import { makeBrief } from "./helpers";
++
++const backing = new Map<string, string>();
++const storageStub = {
++  getItem: (key: string) => backing.get(key) ?? null,
++  setItem: (key: string, value: string) => void backing.set(key, value),
++  removeItem: (key: string) => void backing.delete(key),
++  clear: () => void backing.clear(),
++  length: 0,
++  key: (_index: number) => null,
++};
++
++beforeEach(() => {
++  backing.clear();
++  vi.stubGlobal("window", { localStorage: storageStub });
++});
++
++afterEach(() => {
++  vi.unstubAllGlobals();
++});
++
++const put = (name: string) => saveRevision(makeBrief(), name);
++
++describe("revision slots", () => {
++  it("stores a revision and lists it", () => {
++    const saved = put("first cut");
++    expect(saved.ok).toBe(true);
++    const list = listRevisions();
++    expect(list.ok && list.revisions.length === 1).toBe(true);
++  });
++
++  it("refuses a label that is only spaces", () => {
++    const refused = saveRevision(makeBrief(), "   ");
++    expect(refused.ok).toBe(false);
++  });
++
++  it("keeps one slot per label", () => {
++    put("checkpoint");
++    put("checkpoint");
++    const list = listRevisions();
++    expect(list.ok && list.revisions.length === 1).toBe(true);
++  });
++
++  it("leaves no slot behind when a label is replaced", () => {
++    put("checkpoint");
++    const before = backing.size;
++    put("checkpoint");
++    expect(backing.size).toBeLessThanOrEqual(before);
++  });
++});
++
++describe("history limit", () => {
++  it("holds at most twenty revisions", () => {
++    for (let i = 0; i < MAX_REVISIONS + 4; i += 1) {
++      put(`fill ${i}`);
++    }
++    const list = listRevisions();
++    expect(list.ok && list.revisions.length <= MAX_REVISIONS).toBe(true);
++  });
++
++  it("deletes the data of evicted revisions", () => {
++    for (let i = 0; i < MAX_REVISIONS + 3; i += 1) {
++      put(`fill ${i}`);
++    }
++    const slots = Array.from(backing.keys()).filter((key) => key.startsWith("double-tap-rev-"));
++    expect(slots.length).toBeLessThanOrEqual(MAX_REVISIONS);
++  });
++
++  it("protects the very first revision", () => {
++    put("the start");
++    for (let i = 1; i < MAX_REVISIONS + 3; i += 1) {
++      put(`fill ${i}`);
++    }
++    const anchor = loadRevision("the start");
++    expect(anchor.ok).toBe(true);
++    const refused = deleteRevision("the start");
++    expect(refused.ok).toBe(false);
++  });
++});
++
++describe("restore", () => {
++  it("appends a restored copy instead of replacing", () => {
++    put("source");
++    const restored = restoreRevision("source");
++    expect(restored.ok).toBe(true);
++    if (!restored.ok) return;
++    expect(restored.revision.name).toContain("restored");
++    const list = listRevisions();
++    expect(list.ok && list.revisions.length === 2).toBe(true);
++  });
++
++  it("keeps the source untouched", () => {
++    put("source");
++    restoreRevision("source");
++    const source = loadRevision("source");
++    expect(source.ok).toBe(true);
++  });
++});
++
++describe("export", () => {
++  it("lists names in the text", () => {
++    put("alpha");
++    put("beta");
++    const list = listRevisions();
++    if (!list.ok) return;
++    const text = buildRevisionListText(list.revisions);
++    expect(text).toContain("alpha");
++    expect(text).toContain("beta");
++  });
++
++  it("handles an empty history", () => {
++    expect(buildRevisionListText([])).toContain("No saved revisions");
++  });
++});

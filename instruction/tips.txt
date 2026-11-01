@@ -1,0 +1,44 @@
+👋 Quick update and tips!
+
+Hi all, we've shipped several platform updates over the last day. Here's what affects you:
+
+Rubric (tests/grader/rubric.toml)
+Judged questions are yes/no. Write each one so a maintainer of the repo would clearly answer yes or no for any solution.
+Each task needs 5–15 questions.
+You can mark a question as a blocker (blocker = true), so a "no" fails the attempt. Use this only for things a maintainer would refuse to merge over.
+The automated review now checks rubric quality. Each question should test one thing, be unambiguous, not be tied to your solution, be inferable from the task and codebase, and be weighted by importance. Together, the questions should cover every requirement in your description.
+Minimum task size (checked at submit)
+Solution patch: at least 450 added lines across at least 4 files.
+Hidden tests: at least 430 added lines across at least 2 files.
+At least 10 fail-to-pass tests (aim for 20+) and at least 50 pass-to-pass tests.
+List your test IDs under tests: on the f2p and p2p criteria in grader.yaml, together with the report path. Only listed tests count, and every listed test must actually pass in the reference run.
+Task description: 60–300 words, counted before the codebase guidelines.
+Build Kit 1.3.0
+Please update to the latest kit from the Build kit page so maintkit check catches these before you submit. Bundles packed with an older kit may be refused.
+Claims and limits
+You can hold 2 repo claims at a time, and each repo can now take up to 10 tasks.
+If a repo isn't working for you, release the claim and claim another. Releasing doesn't count against you, but letting a claim expire unused does.
+You can have up to 3 tasks validating at once.
+Fixes on our side
+Several platform issues caused tasks to fail through no fault of yours: environment images that wouldn't load, a locked report folder, lint and format tools missing from some environments, and the review step returning no result. All of these are fixed, and we've rerun the affected tasks.
+If your task failed with a platform error earlier today, check its latest result. No resubmission needed.
+Submissions used up by confirmed platform errors are being credited back.
+Adversarial review is less strict now
+The adversarial review should reject far fewer good tasks.
+If your task was blocked by the adversarial review before, resubmit it, or send us the task link and we'll rerun it.
+If it does find a wrong solution that passes your grading, you'll now see why that patch is wrong and a specific suggestion for tightening your grading.
+Common issues we're seeing (and how to avoid them)
+
+Rubric questions that reward your solution instead of the request. This is the most common failure. If a different correct fix would answer "no", rewrite the question. Don't ask about your helper names, your structure or docs the request never asked for.
+Questions that check several things at once. Split "handles X, Y and Z and updates the docs" into separate questions.
+Requirements a solver couldn't know. Every question and blocker must follow from your description, the repo guidelines or normal maintainer expectations. Exact strings, new names or formats that only you know will fail.
+Merge-stoppers left as non-blockers, or style nits made blockers. If a maintainer would refuse the PR over it, make it a blocker with real evidence (a hidden test or a command). If it's taste, keep it a weighted non-blocker.
+Missing coverage of what a maintainer would infer. Examples: a sibling code path with the same bug, other input types the neighbouring code supports, cleanup on failure, and keeping existing public APIs and stored formats working. Add blocking tests for these.
+Scope rules that are too tight. Block only protected surfaces (public APIs, generated files, unrelated modules) and wholesale rewrites. Don't limit allowed_paths to your own files, since a reasonable broader fix has to pass.
+An alternative patch that's a copy of the golden. It has to be a genuinely different valid approach, and it must pass every blocker.
+Removing or editing the platform checks (regression_safety, mechanical_cleanliness, test_correctness). You can change only their blocker flag and weight. Removing one fails submit.
+Hand-editing generated fields. Leave base_commit, the docker image and the verifier timeout as the kit writes them. Mismatches fail submit.
+Editing config files the checks read in your golden patch (tsconfig.json, linter or test-runner config). The checks refuse to run, and your golden scores 0.
+Grading that doesn't credit your own golden patch. Run maintkit verify before submitting. The golden must score at least 0.9 and pass every blocker, and a no-change run must score 0.
+AI-written descriptions. Write instruction.md yourself, the way you'd write a real request to a teammate.
+Thanks for bearing with us through these fixes. Reply here in the channel (NOT in this thread) with any questions.

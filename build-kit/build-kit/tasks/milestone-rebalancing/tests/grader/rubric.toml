@@ -1,0 +1,53 @@
+[judge]
+mode = "individual"
+samples = 1
+guard = "penalize"
+isolated = true
+timeout = 300
+prompt_template = "judge-prompt.md"
+files = ["submission/change.diff", "submission/changed-files.txt"]
+
+[[criterion]]
+id = "refusal-names-pins-to-release"
+description = "When the rebalancing refuses a request in the new module, does releaseCandidates contain the ids of the locked milestones causing the refusal? (Judge rebalance.ts.)"
+type = "binary"
+weight = 3
+
+[criterion.annotations]
+blocker = false
+
+[[criterion]]
+id = "module-exports-its-types"
+description = "Does the new rebalancing module export the TypeScript types that callers need to construct requests and handle results, so callers never reach into internal representation? (Judge rebalance.ts.)"
+type = "binary"
+weight = 2
+
+[criterion.annotations]
+blocker = false
+
+[[criterion]]
+id = "totals-use-integer-arithmetic"
+description = "Does the week and payment distribution in the rebalancing module rely on integer arithmetic throughout, avoiding floating-point comparison for the final totals? (Judge rebalance.ts.)"
+type = "binary"
+weight = 2
+
+[criterion.annotations]
+blocker = false
+
+[[criterion]]
+id = "estimate-integration-is-thin"
+description = "Does the estimate integration in estimate.ts add only the new function without modifying any existing estimate logic? (Judge estimate.ts.)"
+type = "binary"
+weight = 2
+
+[criterion.annotations]
+blocker = false
+
+[[criterion]]
+id = "tests-exercise-refusal-and-redraw"
+description = "Do the tests added with this change exercise both a successful redistribution and at least one refusal path? (Judge tests/rebalance.test.ts or the new test file under tests/.)"
+type = "binary"
+weight = 1
+
+[criterion.annotations]
+blocker = false

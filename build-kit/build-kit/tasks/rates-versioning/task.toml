@@ -1,0 +1,65 @@
+schema_version = "1.1"
+artifacts = ["/logs/artifacts/model.patch"]
+
+[task]
+name = "afterquery/rates-versioning"
+
+[metadata]
+task_id = "rates-versioning"
+display_title = "Estimates pinned to their rate version"
+display_description = "Put the catalog rates under version control, stamp each estimate with the version it used, keep old briefs on their original numbers, and show the original next to today with the gap."
+category = "feature_request"
+language = "typescript"
+repository_url = "platform://local-working-copy"
+base_commit_hash = "7006cf0dae7c9b07b55be3cf569050a9240b9bcb"
+
+[agent]
+timeout_sec = 7200
+
+[verifier]
+environment_mode = "separate"
+timeout_sec = 1800
+
+[verifier.environment]
+build_timeout_sec = 1800
+cpus = 4
+memory_mb = 16384
+storage_mb = 51200
+allow_internet = true
+
+[environment]
+build_timeout_sec = 1800
+docker_image = "maintkit.local/environment:base"
+os = "linux"
+cpus = 4
+memory_mb = 16384
+storage_mb = 51200
+gpus = 0
+allow_internet = true
+
+[[verifier.collect]]
+command = '''
+#!/bin/bash
+# Captures every change in the working tree, committed or not, against the starting commit.
+set -euo pipefail
+out=/logs/artifacts/model.patch
+mkdir -p /logs/artifacts
+rm -f "$out"
+cd /app
+git config --global --add safe.directory /app 2>/dev/null || true
+if ! git rev-parse --verify --quiet "7006cf0dae7c9b07b55be3cf569050a9240b9bcb^{commit}" >/dev/null; then
+  echo "[pre_artifacts] error: the starting commit 7006cf0dae7c9b07b55be3cf569050a9240b9bcb is not in this repository; nothing captured" >&2
+  exit 1
+fi
+git add -u
+git add -A -- . ':(exclude,glob)**/__pycache__/**' ':(exclude,glob)**/*.pyc' ':(exclude,glob)**/*.pyo' ':(exclude,glob)**/node_modules/**' ':(exclude,glob)**/target/**' ':(exclude,glob)**/dist/**' ':(exclude,glob)**/.venv/**' ':(exclude,glob)**/venv/**' ':(exclude,glob)**/.pytest_cache/**' ':(exclude,glob)**/.mypy_cache/**' ':(exclude,glob)**/.ruff_cache/**' ':(exclude,glob)**/.tox/**' ':(exclude,glob)**/.coverage' ':(exclude,glob)**/.coverage.*' ':(exclude,glob)**/coverage/**' ':(exclude,glob)**/htmlcov/**' ':(exclude,glob)**/.nyc_output/**' ':(exclude,glob)**/coverage.xml' ':(exclude,glob)**/lcov.info'
+git diff --binary --cached 7006cf0dae7c9b07b55be3cf569050a9240b9bcb > "$out.tmp"
+if [ ! -s "$out.tmp" ]; then
+  rm -f "$out.tmp"
+  echo "[pre_artifacts] error: the working tree has no changes against 7006cf0dae7c9b07b55be3cf569050a9240b9bcb; nothing captured" >&2
+  exit 2
+fi
+mv "$out.tmp" "$out"
+echo "[pre_artifacts] captured $(wc -c < "$out") bytes"
+'''
+timeout_sec = 300

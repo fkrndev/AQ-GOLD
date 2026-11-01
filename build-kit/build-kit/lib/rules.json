@@ -1,0 +1,47 @@
+{
+  "kit": "1.3.4",
+  "format": 1,
+  "thresholds": {
+    "minInstructionWords": 60,
+    "maxInstructionWords": 300,
+    "minSolutionAddedLines": 450,
+    "minSolutionFiles": 4,
+    "minTestAddedLines": 430,
+    "minTestFiles": 2,
+    "minF2p": 10,
+    "warnF2p": 20,
+    "minP2p": 50,
+    "minSolutionLinesPerInstructionWord": 0.9,
+    "maxSolutionLinesPerInstructionWord": 7.5,
+    "agentTimeoutSecExact": 5400,
+    "verifierTimeoutSecExact": 1800,
+    "cpusExact": 2,
+    "memoryMbExact": 8192,
+    "storageMbExact": 20480
+  },
+  "mergeability": {
+    "rubricCriteria": {
+      "min": 5,
+      "max": 15
+    },
+    "prompt": {
+      "guidelinesTarget": 1000,
+      "guidelinesWarnMax": 2000
+    },
+    "goldenPatchWarn": {
+      "maxLines": 3000,
+      "maxFiles": 60
+    },
+    "negativeMaxScore": 0.5,
+    "taskEnvelope": {
+      "cpus": 4,
+      "memoryMb": 16384,
+      "storageMb": 51200,
+      "allowInternet": true,
+      "agentTimeoutSec": 7200,
+      "verifierTimeoutSec": 1800
+    }
+  },
+  "goldenMinScore": 0.9,
+  "rubricSamples": 1
+}

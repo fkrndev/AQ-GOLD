@@ -1,0 +1,554 @@
+diff --git a/app/(site)/brief/BriefWorkspace.tsx b/app/(site)/brief/BriefWorkspace.tsx
+index b95e166..4e1df62 100644
+--- a/app/(site)/brief/BriefWorkspace.tsx
++++ b/app/(site)/brief/BriefWorkspace.tsx
+@@ -9,10 +9,12 @@ import { createEmptyBrief, touchBrief } from "./defaults";
+ import { buildBriefCsv, buildBriefText, downloadFile, safeFilename } from "./export";
+ import { createEstimate, estimateSummary, formatCurrency, formatNumber, getMissingDependencies } from "./estimate";
+ import { getTemplate, BRIEF_TEMPLATES } from "./templates";
++import { ensureEditable, getFrozenEstimate, getStatus, getTrail } from "./lifecycle";
++import { LifecycleControls } from "./LifecycleControls";
+ import { clearBrief, loadBrief, saveBrief } from "./storage";
+ import { firstErrorStep, issuesForStep, readinessLabel, readinessScore, stepCompletion, validateBrief } from "./validation";
+ import { analyseBrief } from "./analysis";
+-import type { AudienceProfile, BriefStepId, Competitor, DeliverableId, ProjectBrief, SelectedDeliverable, SelectedService, ServiceId, Stakeholder } from "./types";
++import type { AudienceProfile, BriefStepId, Competitor, DeliverableId, LifecycleEvent, LifecycleStatus, ProjectBrief, SelectedDeliverable, SelectedService, ServiceId, Stakeholder } from "./types";
+ 
+ const makeId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+ 
+@@ -41,6 +43,10 @@ export default function BriefWorkspace() {
+   const [showTemplates, setShowTemplates] = useState(false);
+   const [serviceFilter, setServiceFilter] = useState("All");
+   const [submitted, setSubmitted] = useState(false);
++  const [lifecycleStatus, setLifecycleStatus] = useState<LifecycleStatus>("draft");
++  const [lifecycleEvents, setLifecycleEvents] = useState<LifecycleEvent[]>([]);
++  const [frozenHours, setFrozenHours] = useState<number | null>(null);
++  const [lifecycleNotice, setLifecycleNotice] = useState("");
+ 
+   useEffect(() => {
+     const saved = loadBrief();
+@@ -48,12 +54,22 @@ export default function BriefWorkspace() {
+       setBrief(saved);
+       setSavedAt(saved.updatedAt);
+     }
++    const trail = getTrail();
++    setLifecycleStatus(getStatus());
++    setLifecycleEvents(trail.ok ? trail.events : []);
++    const frozen = getFrozenEstimate();
++    setFrozenHours(frozen.ok ? frozen.estimate.estimatedHours : null);
+     setHydrated(true);
+   }, []);
+ 
+   useEffect(() => {
+     if (!hydrated) return;
+     const id = window.setTimeout(() => {
++      const guard = ensureEditable();
++      if (!guard.ok) {
++        setLifecycleNotice(guard.message);
++        return;
++      }
+       const next = touchBrief(brief);
+       saveBrief(next);
+       setSavedAt(next.updatedAt);
+@@ -70,6 +86,13 @@ export default function BriefWorkspace() {
+   const missingDependencies = useMemo(() => getMissingDependencies(brief), [brief]);
+   const errorFor = (path: string) => issues.find((currentIssue) => currentIssue.path === path && currentIssue.severity === "error")?.message;
+ 
++  const handleLifecycleMoved = (status: LifecycleStatus, events: LifecycleEvent[]) => {
++    setLifecycleStatus(status);
++    setLifecycleEvents(events);
++    const frozen = getFrozenEstimate();
++    setFrozenHours(frozen.ok ? frozen.estimate.estimatedHours : null);
++  };
++
+   const update = <K extends keyof ProjectBrief>(key: K, value: ProjectBrief[K]) => {
+     setBrief((current) => ({ ...current, [key]: value }));
+     setSubmitted(false);
+@@ -235,6 +258,8 @@ export default function BriefWorkspace() {
+   const review = (
+     <div className="brief-step-content">
+       <SectionHeading eyebrow="06 / Review" title="A usable starting point" detail="This summary is an early planning aid, not a final quotation. It gives both teams a focused way to begin." />
++      <LifecycleControls status={lifecycleStatus} events={lifecycleEvents} frozenHours={frozenHours} onMoved={handleLifecycleMoved} onNotice={setLifecycleNotice} />
++      {lifecycleNotice ? <IssueMessage messages={[lifecycleNotice]} /> : null}
+       <div className="brief-readiness"><div className="brief-readiness__score"><strong>{score}</strong><span>/ 100</span></div><div><h3>{readinessLabel(score)}</h3><p>{issues.filter((item) => item.severity === "error").length} items need attention and {issues.filter((item) => item.severity === "warning").length} items would strengthen the conversation.</p></div><div className="brief-progress"><span style={{ width: `${score}%` }} /></div></div>
+       {issues.length ? <div className="brief-review-issues"><h3>Before sending</h3>{BRIEF_STEPS.map((step) => { const stepIssues = issuesForStep(issues, step.id); if (!stepIssues.length) return null; return <div key={step.id}><button type="button" onClick={() => setActiveStep(step.id)}>{step.shortLabel}</button>{stepIssues.map((item) => <p key={`${item.path}-${item.message}`} className={item.severity}>{item.message}</p>)}</div>; })}</div> : <div className="brief-success-message"><strong>The brief is ready for a first discussion.</strong><span>Review the early estimate and export the summary when you are ready.</span></div>}
+       <section className="brief-estimate"><div className="brief-estimate__hero"><p>Indicative project range</p><h3>{formatCurrency(estimate.minCost)} <span>to</span> {formatCurrency(estimate.maxCost)}</h3><span>{estimateSummary(estimate)}</span></div><div className="brief-estimate__facts"><div><span>Effort</span><strong>{formatNumber(estimate.estimatedHours)} hours</strong></div><div><span>Delivery</span><strong>~{estimate.estimatedWeeks} weeks</strong></div><div><span>Risk</span><strong className={`risk-${estimate.risk}`}>{estimate.risk}</strong></div><div><span>Confidence</span><strong>{estimate.confidence}</strong></div></div></section>
+diff --git a/app/(site)/brief/LifecycleControls.tsx b/app/(site)/brief/LifecycleControls.tsx
+new file mode 100644
+index 0000000..822b8de
+--- /dev/null
++++ b/app/(site)/brief/LifecycleControls.tsx
+@@ -0,0 +1,61 @@
++"use client";
++
++import { useState } from "react";
++import { buildLifecycleText } from "./export";
++import { getTrail, transitionBrief } from "./lifecycle";
++import type { LifecycleEvent, LifecycleStatus } from "./types";
++
++export type LifecycleControlsProps = {
++  status: LifecycleStatus;
++  events: LifecycleEvent[];
++  frozenHours: number | null;
++  onMoved: (status: LifecycleStatus, events: LifecycleEvent[]) => void;
++  onNotice: (message: string) => void;
++};
++
++const NEXT_STEP: Partial<Record<LifecycleStatus, { to: LifecycleStatus; label: string }>> = {
++  draft: { to: "in-review", label: "Send to review" },
++  "in-review": { to: "ready", label: "Mark ready" },
++  ready: { to: "signed-off", label: "Sign off" },
++};
++
++export function LifecycleControls({ status, events, frozenHours, onMoved, onNotice }: LifecycleControlsProps) {
++  const [note, setNote] = useState("");
++  const next = NEXT_STEP[status];
++
++  const move = (to: LifecycleStatus, reopenNote: string) => {
++    const result = transitionBrief(to, reopenNote);
++    if (!result.ok) {
++      onNotice(result.message);
++      return;
++    }
++    const trail = getTrail();
++    onMoved(result.status, trail.ok ? trail.events : []);
++    onNotice("");
++    setNote("");
++  };
++
++  return (
++    <section className="brief-lifecycle">
++      <h3>Brief status: {status}</h3>
++      {next ? (
++        <button type="button" onClick={() => move(next.to, "")}>
++          {next.label}
++        </button>
++      ) : (
++        <div className="brief-lifecycle__reopen">
++          <input
++            value={note}
++            placeholder="Why is this being reopened?"
++            onChange={(event) => setNote(event.target.value)}
++          />
++          <button type="button" onClick={() => move("draft", note)}>
++            Record reopen
++          </button>
++        </div>
++      )}
++      {frozenHours === null ? null : <p>Signed off at {frozenHours} hours.</p>}
++      <pre className="brief-lifecycle__trail">{buildLifecycleText(events)}</pre>
++    </section>
++  );
++}
+diff --git a/app/(site)/brief/export.ts b/app/(site)/brief/export.ts
+index 3f73b38..6f3e64f 100644
+--- a/app/(site)/brief/export.ts
++++ b/app/(site)/brief/export.ts
+@@ -1,7 +1,7 @@
+ import { getDeliverable, getService } from "./catalog";
+ import { createEstimate, formatCurrency, formatNumber } from "./estimate";
+ import { readinessLabel, readinessScore, validateBrief } from "./validation";
+-import type { ProjectBrief } from "./types";
++import type { LifecycleEvent, ProjectBrief } from "./types";
+ 
+ const escapeCsv = (value: string | number | boolean): string => {
+   const text = String(value);
+@@ -103,6 +103,21 @@ export const buildBriefText = (brief: ProjectBrief): string => {
+   ].join("\n");
+ };
+ 
++/**
++ * One line per lifecycle move: "from -> to", the word start opening the
++ * first line, and the recorded note in parentheses when there is one.
++ */
++export const buildLifecycleText = (events: LifecycleEvent[]): string => {
++  if (events.length === 0) return "No lifecycle moves";
++  return events
++    .map((event) => {
++      const from = event.from === null ? "start" : event.from;
++      const note = event.note === "" ? "" : ` (${event.note})`;
++      return `${from} -> ${event.to}${note}`;
++    })
++    .join("\n");
++};
++
+ export const buildBriefCsv = (brief: ProjectBrief): string => {
+   const estimate = createEstimate(brief);
+   const rows: Array<[string, string]> = [
+diff --git a/app/(site)/brief/lifecycle.ts b/app/(site)/brief/lifecycle.ts
+new file mode 100644
+index 0000000..5f931bd
+--- /dev/null
++++ b/app/(site)/brief/lifecycle.ts
+@@ -0,0 +1,182 @@
++import { createEstimate } from "./estimate";
++import { loadBrief } from "./storage";
++import type { LifecycleEvent, LifecycleRecord, LifecycleStatus, FrozenEstimate } from "./types";
++
++/**
++ * Lifecycle for the brief. A brief used to be plain form data with no state
++ * of its own, so nobody could tell whether it was still being written or
++ * already agreed. This module gives it four statuses, rejects moves that are
++ * not allowed, freezes the estimate at sign off, forces a recorded reopen
++ * before a frozen brief can be edited again, and keeps an append only trail
++ * of every move. The trail is never rewritten; each move appends.
++ */
++
++const LIFECYCLE_KEY = "tripal-brief-lifecycle";
++
++const MOVES: Array<{ from: LifecycleStatus; to: LifecycleStatus; noteRequired: boolean }> = [
++  { from: "draft", to: "in-review", noteRequired: false },
++  { from: "in-review", to: "ready", noteRequired: false },
++  { from: "ready", to: "signed-off", noteRequired: false },
++  { from: "signed-off", to: "draft", noteRequired: true },
++];
++
++const STATUSES: LifecycleStatus[] = ["draft", "in-review", "ready", "signed-off"];
++
++const isStatus = (value: unknown): value is LifecycleStatus =>
++  typeof value === "string" && STATUSES.includes(value as LifecycleStatus);
++
++const canUseStorage = (): boolean =>
++  typeof window !== "undefined" && typeof window.localStorage !== "undefined";
++
++const parseRecord = (raw: unknown): LifecycleRecord | null => {
++  if (typeof raw !== "object" || raw === null) return null;
++  const obj = raw as Record<string, unknown>;
++  if (obj.schema !== 1 || !isStatus(obj.status) || !Array.isArray(obj.events)) return null;
++  const events: LifecycleEvent[] = [];
++  for (const entry of obj.events) {
++    if (typeof entry !== "object" || entry === null) continue;
++    const event = entry as Record<string, unknown>;
++    if (!isStatus(event.to) || typeof event.at !== "string" || typeof event.note !== "string") continue;
++    if (event.from !== null && !isStatus(event.from)) continue;
++    events.push({
++      at: event.at,
++      from: event.from as LifecycleStatus | null,
++      to: event.to,
++      note: event.note,
++    });
++  }
++  const frozen = parseFrozenEstimate(obj.frozenEstimate);
++  return frozen === null
++    ? { schema: 1, status: obj.status, events }
++    : { schema: 1, status: obj.status, frozenEstimate: frozen, events };
++};
++
++const parseFrozenEstimate = (raw: unknown): FrozenEstimate | null => {
++  if (typeof raw !== "object" || raw === null) return null;
++  const obj = raw as Record<string, unknown>;
++  if (typeof obj.estimatedHours !== "number" || typeof obj.estimatedWeeks !== "number") return null;
++  if (typeof obj.minCost !== "number" || typeof obj.maxCost !== "number") return null;
++  if (obj.risk !== "low" && obj.risk !== "medium" && obj.risk !== "high") return null;
++  return {
++    estimatedHours: obj.estimatedHours,
++    estimatedWeeks: obj.estimatedWeeks,
++    minCost: obj.minCost,
++    maxCost: obj.maxCost,
++    risk: obj.risk,
++  };
++};
++
++const readRecord = (): LifecycleRecord | null => {
++  if (!canUseStorage()) return null;
++  try {
++    const raw = window.localStorage.getItem(LIFECYCLE_KEY);
++    if (raw === null) return null;
++    return parseRecord(JSON.parse(raw));
++  } catch {
++    return null;
++  }
++};
++
++const writeRecord = (record: LifecycleRecord): boolean => {
++  if (!canUseStorage()) return false;
++  try {
++    window.localStorage.setItem(LIFECYCLE_KEY, JSON.stringify(record));
++    return true;
++  } catch {
++    return false;
++  }
++};
++
++const summarize = (estimate: ReturnType<typeof createEstimate>): FrozenEstimate => ({
++  estimatedHours: estimate.estimatedHours,
++  estimatedWeeks: estimate.estimatedWeeks,
++  minCost: estimate.minCost,
++  maxCost: estimate.maxCost,
++  risk: estimate.risk,
++});
++
++/** Current status of the stored brief. A brief with no moves yet is a draft. */
++export const getStatus = (): LifecycleStatus => {
++  const record = readRecord();
++  return record === null ? "draft" : record.status;
++};
++
++export const transitionBrief = (
++  to: LifecycleStatus,
++  note = "",
++): { ok: true; status: LifecycleStatus; event: LifecycleEvent } | { ok: false; reason: "not-found" | "move-not-allowed" | "note-required" | "storage-unavailable"; message: string } => {
++  if (!canUseStorage()) {
++    return { ok: false, reason: "storage-unavailable", message: "The lifecycle record is not accessible." };
++  }
++  const brief = loadBrief();
++  if (brief === null) {
++    return { ok: false, reason: "not-found", message: "There is no saved brief to move." };
++  }
++  const existing = readRecord();
++  const record = existing ?? { schema: 1 as const, status: "draft" as LifecycleStatus, events: [] };
++  const move = MOVES.find((candidate) => candidate.from === record.status && candidate.to === to);
++  if (!move) {
++    return { ok: false, reason: "move-not-allowed", message: `A brief cannot move from ${record.status} to ${to}.` };
++  }
++  const trimmed = note.trim();
++  if (move.noteRequired && trimmed === "") {
++    return { ok: false, reason: "note-required", message: "Reopening a signed off brief needs a recorded note." };
++  }
++  const event: LifecycleEvent = { at: new Date().toISOString(), from: existing === null ? null : record.status, to, note: trimmed };
++  const next: LifecycleRecord = {
++    schema: 1,
++    status: to,
++    frozenEstimate: record.frozenEstimate,
++    events: [...record.events, event],
++  };
++  if (to === "signed-off") {
++    next.frozenEstimate = summarize(createEstimate(brief));
++  }
++  if (!writeRecord(next)) {
++    return { ok: false, reason: "storage-unavailable", message: "The lifecycle record could not be saved." };
++  }
++  return { ok: true, status: to, event };
++};
++
++export const getTrail = ():
++  | { ok: true; events: LifecycleEvent[] }
++  | { ok: false; reason: "not-found" | "storage-unavailable"; message: string } => {
++  if (!canUseStorage()) {
++    return { ok: false, reason: "storage-unavailable", message: "The lifecycle record is not accessible." };
++  }
++  const brief = loadBrief();
++  if (brief === null) {
++    return { ok: false, reason: "not-found", message: "There is no saved brief to read." };
++  }
++  const record = readRecord();
++  return { ok: true, events: record === null ? [] : [...record.events] };
++};
++
++export const getFrozenEstimate = ():
++  | { ok: true; estimate: FrozenEstimate }
++  | { ok: false; reason: "not-frozen" | "storage-unavailable"; message: string } => {
++  if (!canUseStorage()) {
++    return { ok: false, reason: "storage-unavailable", message: "The lifecycle record is not accessible." };
++  }
++  const record = readRecord();
++  if (record === null || record.frozenEstimate === undefined || record.frozenEstimate === null) {
++    return { ok: false, reason: "not-frozen", message: "The estimate freezes when the brief is signed off." };
++  }
++  return { ok: true, estimate: record.frozenEstimate };
++};
++
++/**
++ * The edit guard. While the brief is signed off the numbers are frozen, so
++ * editing is refused until a recorded reopen moves it back to draft.
++ */
++export const ensureEditable = ():
++  | { ok: true }
++  | { ok: false; reason: "signed-off" | "storage-unavailable"; message: string } => {
++  if (!canUseStorage()) {
++    return { ok: false, reason: "storage-unavailable", message: "The lifecycle record is not accessible." };
++  }
++  if (getStatus() === "signed-off") {
++    return { ok: false, reason: "signed-off", message: "This brief is signed off. Record a reopen before editing." };
++  }
++  return { ok: true };
++};
+diff --git a/app/(site)/brief/types.ts b/app/(site)/brief/types.ts
+index 693169a..28cf01a 100644
+--- a/app/(site)/brief/types.ts
++++ b/app/(site)/brief/types.ts
+@@ -252,3 +252,27 @@ export type BriefTemplate = {
+   timeline: TimelineRange;
+   attributes: string[];
+ };
++
++export type LifecycleStatus = "draft" | "in-review" | "ready" | "signed-off";
++
++export type LifecycleEvent = {
++  at: string;
++  from: LifecycleStatus | null;
++  to: LifecycleStatus;
++  note: string;
++};
++
++export type FrozenEstimate = {
++  estimatedHours: number;
++  estimatedWeeks: number;
++  minCost: number;
++  maxCost: number;
++  risk: RiskLevel;
++};
++
++export type LifecycleRecord = {
++  schema: 1;
++  status: LifecycleStatus;
++  frozenEstimate?: FrozenEstimate;
++  events: LifecycleEvent[];
++};
+diff --git a/tests/lifecycle.test.ts b/tests/lifecycle.test.ts
+new file mode 100644
+index 0000000..1136632
+--- /dev/null
++++ b/tests/lifecycle.test.ts
+@@ -0,0 +1,151 @@
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++import { saveBrief } from "../app/(site)/brief/storage";
++import { createEmptyBrief } from "../app/(site)/brief/defaults";
++import { buildLifecycleText } from "../app/(site)/brief/export";
++import {
++  ensureEditable,
++  getFrozenEstimate,
++  getStatus,
++  getTrail,
++  transitionBrief,
++} from "../app/(site)/brief/lifecycle";
++
++const store = new Map<string, string>();
++const localStorageMock = {
++  getItem: (key: string) => store.get(key) ?? null,
++  setItem: (key: string, value: string) => void store.set(key, value),
++  removeItem: (key: string) => void store.delete(key),
++  clear: () => void store.clear(),
++  length: 0,
++  key: (_index: number) => null,
++};
++
++beforeEach(() => {
++  store.clear();
++  vi.stubGlobal("window", { localStorage: localStorageMock });
++});
++
++afterEach(() => {
++  vi.unstubAllGlobals();
++});
++
++const seedBrief = () => {
++  const brief = createEmptyBrief();
++  brief.projectName = "Lifecycle coverage";
++  saveBrief(brief);
++  return brief;
++};
++
++describe("lifecycle status", () => {
++  it("starts as draft", () => {
++    seedBrief();
++    expect(getStatus()).toBe("draft");
++  });
++
++  it("moves draft to in-review", () => {
++    seedBrief();
++    const result = transitionBrief("in-review");
++    expect(result.ok).toBe(true);
++    expect(getStatus()).toBe("in-review");
++  });
++
++  it("refuses a move that is not allowed", () => {
++    seedBrief();
++    const result = transitionBrief("signed-off");
++    expect(result.ok).toBe(false);
++    if (result.ok) return;
++    expect(result.reason).toBe("move-not-allowed");
++  });
++
++  it("requires a note to reopen a signed off brief", () => {
++    seedBrief();
++    transitionBrief("in-review");
++    transitionBrief("ready");
++    transitionBrief("signed-off");
++    const blank = transitionBrief("draft");
++    expect(blank.ok).toBe(false);
++    if (blank.ok) return;
++    expect(blank.reason).toBe("note-required");
++  });
++});
++
++describe("lifecycle trail", () => {
++  it("appends one event per move, oldest first", () => {
++    seedBrief();
++    transitionBrief("in-review");
++    transitionBrief("ready");
++    const trail = getTrail();
++    expect(trail.ok).toBe(true);
++    if (!trail.ok) return;
++    expect(trail.events).toHaveLength(2);
++    expect(trail.events[0].from).toBe(null);
++    expect(trail.events[1].from).toBe("in-review");
++  });
++
++  it("records the reopen note", () => {
++    seedBrief();
++    transitionBrief("in-review");
++    transitionBrief("ready");
++    transitionBrief("signed-off");
++    transitionBrief("draft", "client widened the scope");
++    const trail = getTrail();
++    expect(trail.ok).toBe(true);
++    if (!trail.ok) return;
++    const last = trail.events[trail.events.length - 1];
++    expect(last.note).toBe("client widened the scope");
++    expect(last.to).toBe("draft");
++  });
++
++  it("renders the trail as text", () => {
++    seedBrief();
++    transitionBrief("in-review");
++    const trail = getTrail();
++    if (!trail.ok) return;
++    expect(buildLifecycleText(trail.events)).toContain("start -> in-review");
++  });
++});
++
++describe("frozen estimate", () => {
++  it("is not frozen before sign off", () => {
++    seedBrief();
++    expect(getFrozenEstimate().ok).toBe(false);
++  });
++
++  it("freezes the estimate at sign off", () => {
++    seedBrief();
++    transitionBrief("in-review");
++    transitionBrief("ready");
++    transitionBrief("signed-off");
++    const frozen = getFrozenEstimate();
++    expect(frozen.ok).toBe(true);
++    if (!frozen.ok) return;
++    expect(frozen.estimate.estimatedHours).toBeGreaterThanOrEqual(0);
++  });
++});
++
++describe("edit guard", () => {
++  it("allows edits while drafting", () => {
++    seedBrief();
++    expect(ensureEditable().ok).toBe(true);
++  });
++
++  it("refuses edits once signed off", () => {
++    seedBrief();
++    transitionBrief("in-review");
++    transitionBrief("ready");
++    transitionBrief("signed-off");
++    const guard = ensureEditable();
++    expect(guard.ok).toBe(false);
++    if (guard.ok) return;
++    expect(guard.reason).toBe("signed-off");
++  });
++
++  it("allows edits again after a recorded reopen", () => {
++    seedBrief();
++    transitionBrief("in-review");
++    transitionBrief("ready");
++    transitionBrief("signed-off");
++    transitionBrief("draft", "back to the start");
++    expect(ensureEditable().ok).toBe(true);
++  });
++});

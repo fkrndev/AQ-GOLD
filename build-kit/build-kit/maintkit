@@ -1,0 +1,5 @@
+#!/bin/sh
+# maintkit: the maintainer build kit. Needs Node.js 20 or newer.
+DIR="$(cd "$(dirname "$0")" && pwd)"
+command -v node >/dev/null 2>&1 || { echo "maintkit needs Node.js 20 or newer on PATH"; exit 1; }
+exec node "$DIR/lib/maintkit.mjs" "$@"

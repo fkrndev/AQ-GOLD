@@ -1,0 +1,532 @@
+diff --git a/app/(site)/brief/BriefWorkspace.tsx b/app/(site)/brief/BriefWorkspace.tsx
+index b95e166..a6c294d 100644
+--- a/app/(site)/brief/BriefWorkspace.tsx
++++ b/app/(site)/brief/BriefWorkspace.tsx
+@@ -9,10 +9,12 @@ import { createEmptyBrief, touchBrief } from "./defaults";
+ import { buildBriefCsv, buildBriefText, downloadFile, safeFilename } from "./export";
+ import { createEstimate, estimateSummary, formatCurrency, formatNumber, getMissingDependencies } from "./estimate";
+ import { getTemplate, BRIEF_TEMPLATES } from "./templates";
++import { ensureEditable, getFrozenEstimate, getStatus, getTrail } from "./lifecycle";
++import { StatusStrip } from "./StatusStrip";
+ import { clearBrief, loadBrief, saveBrief } from "./storage";
+ import { firstErrorStep, issuesForStep, readinessLabel, readinessScore, stepCompletion, validateBrief } from "./validation";
+ import { analyseBrief } from "./analysis";
+-import type { AudienceProfile, BriefStepId, Competitor, DeliverableId, ProjectBrief, SelectedDeliverable, SelectedService, ServiceId, Stakeholder } from "./types";
++import type { AudienceProfile, BriefStepId, Competitor, DeliverableId, LifecycleEvent, LifecycleStatus, ProjectBrief, SelectedDeliverable, SelectedService, ServiceId, Stakeholder } from "./types";
+ 
+ const makeId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+ 
+@@ -41,6 +43,10 @@ export default function BriefWorkspace() {
+   const [showTemplates, setShowTemplates] = useState(false);
+   const [serviceFilter, setServiceFilter] = useState("All");
+   const [submitted, setSubmitted] = useState(false);
++  const [phase, setPhase] = useState<LifecycleStatus>("draft");
++  const [phaseLog, setPhaseLog] = useState<LifecycleEvent[]>([]);
++  const [lockedHours, setLockedHours] = useState<number | null>(null);
++  const [stripMessage, setStripMessage] = useState("");
+ 
+   useEffect(() => {
+     const saved = loadBrief();
+@@ -48,12 +54,22 @@ export default function BriefWorkspace() {
+       setBrief(saved);
+       setSavedAt(saved.updatedAt);
+     }
++    const log = getTrail();
++    setPhase(getStatus());
++    setPhaseLog(log.ok ? log.events : []);
++    const locked = getFrozenEstimate();
++    setLockedHours(locked.ok ? locked.estimate.estimatedHours : null);
+     setHydrated(true);
+   }, []);
+ 
+   useEffect(() => {
+     if (!hydrated) return;
+     const id = window.setTimeout(() => {
++      const lock = ensureEditable();
++      if (!lock.ok) {
++        setStripMessage(lock.message);
++        return;
++      }
+       const next = touchBrief(brief);
+       saveBrief(next);
+       setSavedAt(next.updatedAt);
+@@ -70,6 +86,13 @@ export default function BriefWorkspace() {
+   const missingDependencies = useMemo(() => getMissingDependencies(brief), [brief]);
+   const errorFor = (path: string) => issues.find((currentIssue) => currentIssue.path === path && currentIssue.severity === "error")?.message;
+ 
++  const applyPhase = (current: LifecycleStatus, history: LifecycleEvent[]) => {
++    setPhase(current);
++    setPhaseLog(history);
++    const locked = getFrozenEstimate();
++    setLockedHours(locked.ok ? locked.estimate.estimatedHours : null);
++  };
++
+   const update = <K extends keyof ProjectBrief>(key: K, value: ProjectBrief[K]) => {
+     setBrief((current) => ({ ...current, [key]: value }));
+     setSubmitted(false);
+@@ -236,6 +259,8 @@ export default function BriefWorkspace() {
+     <div className="brief-step-content">
+       <SectionHeading eyebrow="06 / Review" title="A usable starting point" detail="This summary is an early planning aid, not a final quotation. It gives both teams a focused way to begin." />
+       <div className="brief-readiness"><div className="brief-readiness__score"><strong>{score}</strong><span>/ 100</span></div><div><h3>{readinessLabel(score)}</h3><p>{issues.filter((item) => item.severity === "error").length} items need attention and {issues.filter((item) => item.severity === "warning").length} items would strengthen the conversation.</p></div><div className="brief-progress"><span style={{ width: `${score}%` }} /></div></div>
++      <StatusStrip current={phase} history={phaseLog} lockedHours={lockedHours} onPhase={applyPhase} onMessage={setStripMessage} />
++      {stripMessage ? <IssueMessage messages={[stripMessage]} /> : null}
+       {issues.length ? <div className="brief-review-issues"><h3>Before sending</h3>{BRIEF_STEPS.map((step) => { const stepIssues = issuesForStep(issues, step.id); if (!stepIssues.length) return null; return <div key={step.id}><button type="button" onClick={() => setActiveStep(step.id)}>{step.shortLabel}</button>{stepIssues.map((item) => <p key={`${item.path}-${item.message}`} className={item.severity}>{item.message}</p>)}</div>; })}</div> : <div className="brief-success-message"><strong>The brief is ready for a first discussion.</strong><span>Review the early estimate and export the summary when you are ready.</span></div>}
+       <section className="brief-estimate"><div className="brief-estimate__hero"><p>Indicative project range</p><h3>{formatCurrency(estimate.minCost)} <span>to</span> {formatCurrency(estimate.maxCost)}</h3><span>{estimateSummary(estimate)}</span></div><div className="brief-estimate__facts"><div><span>Effort</span><strong>{formatNumber(estimate.estimatedHours)} hours</strong></div><div><span>Delivery</span><strong>~{estimate.estimatedWeeks} weeks</strong></div><div><span>Risk</span><strong className={`risk-${estimate.risk}`}>{estimate.risk}</strong></div><div><span>Confidence</span><strong>{estimate.confidence}</strong></div></div></section>
+       <section className="brief-milestones"><h3>Working milestones</h3><div>{estimate.milestones.map((milestone) => <article key={milestone.id}><span>{milestone.paymentPercent}%</span><div><strong>{milestone.name}</strong><p>{milestone.weeks} week{milestone.weeks === 1 ? "" : "s"} - {milestone.description}</p><small>{milestone.outputs.join(" / ")}</small></div></article>)}</div></section>
+diff --git a/app/(site)/brief/StatusStrip.tsx b/app/(site)/brief/StatusStrip.tsx
+new file mode 100644
+index 0000000..d6c6ed3
+--- /dev/null
++++ b/app/(site)/brief/StatusStrip.tsx
+@@ -0,0 +1,58 @@
++"use client";
++
++import { useState } from "react";
++import { buildLifecycleText } from "./export";
++import { getTrail, transitionBrief } from "./lifecycle";
++import type { LifecycleEvent, LifecycleStatus } from "./types";
++
++export type StatusStripProps = {
++  current: LifecycleStatus;
++  history: LifecycleEvent[];
++  lockedHours: number | null;
++  onPhase: (current: LifecycleStatus, history: LifecycleEvent[]) => void;
++  onMessage: (text: string) => void;
++};
++
++const STEP_WORDS: Record<LifecycleStatus, string> = {
++  draft: "review",
++  "in-review": "ready",
++  ready: "sign off",
++  "signed-off": "",
++};
++
++export function StatusStrip({ current, history, lockedHours, onPhase, onMessage }: StatusStripProps) {
++  const [unlockText, setUnlockText] = useState("");
++
++  const run = (target: LifecycleStatus, carried: string) => {
++    const outcome = transitionBrief(target, carried);
++    if (!outcome.ok) {
++      onMessage(outcome.message);
++      return;
++    }
++    const log = getTrail();
++    onPhase(outcome.status, log.ok ? log.events : []);
++    onMessage("");
++    setUnlockText("");
++  };
++
++  return (
++    <aside className="brief-status-strip">
++      <p className="brief-status-strip__phase">Phase: <strong>{current}</strong></p>
++      {current === "signed-off" ? (
++        <div className="brief-status-strip__unlock">
++          <label>
++            Unlock note
++            <input value={unlockText} onChange={(event) => setUnlockText(event.target.value)} />
++          </label>
++          <button type="button" onClick={() => run("draft", unlockText)}>Unlock brief</button>
++        </div>
++      ) : (
++        <button type="button" onClick={() => run(current === "draft" ? "in-review" : current === "in-review" ? "ready" : "signed-off", "")}>
++          Move to {STEP_WORDS[current]}
++        </button>
++      )}
++      {lockedHours === null ? null : <p className="brief-status-strip__locked">Locked at {lockedHours} hours.</p>}
++      <p className="brief-status-strip__log">{buildLifecycleText(history)}</p>
++    </aside>
++  );
++}
+diff --git a/app/(site)/brief/export.ts b/app/(site)/brief/export.ts
+index 3f73b38..f27659e 100644
+--- a/app/(site)/brief/export.ts
++++ b/app/(site)/brief/export.ts
+@@ -1,7 +1,7 @@
+ import { getDeliverable, getService } from "./catalog";
+ import { createEstimate, formatCurrency, formatNumber } from "./estimate";
+ import { readinessLabel, readinessScore, validateBrief } from "./validation";
+-import type { ProjectBrief } from "./types";
++import type { LifecycleEvent, ProjectBrief } from "./types";
+ 
+ const escapeCsv = (value: string | number | boolean): string => {
+   const text = String(value);
+@@ -12,6 +12,23 @@ const line = (label: string, value: string): string => `${label}: ${value || "No
+ 
+ const list = (items: string[]): string => items.length ? items.map((item) => `- ${item}`).join("\n") : "- Not provided";
+ 
++/**
++ * The phase log as text: one line per move, "from -> to", opening with the
++ * word start, and any recorded note in parentheses.
++ */
++export const buildLifecycleText = (events: LifecycleEvent[]): string => {
++  if (events.length === 0) {
++    return "No lifecycle moves";
++  }
++  const lines: string[] = [];
++  for (const move of events) {
++    const opener = move.from === null ? "start" : move.from;
++    const suffix = move.note === "" ? "" : ` (${move.note})`;
++    lines.push(`${opener} -> ${move.to}${suffix}`);
++  }
++  return lines.join("\n");
++};
++
+ export const buildBriefText = (brief: ProjectBrief): string => {
+   const estimate = createEstimate(brief);
+   const validation = validateBrief(brief);
+diff --git a/app/(site)/brief/lifecycle.ts b/app/(site)/brief/lifecycle.ts
+new file mode 100644
+index 0000000..31a9cbb
+--- /dev/null
++++ b/app/(site)/brief/lifecycle.ts
+@@ -0,0 +1,187 @@
++import { createEstimate } from "./estimate";
++import { loadBrief } from "./storage";
++import type { FrozenEstimate, LifecycleEvent, LifecycleStatus } from "./types";
++
++/**
++ * Phase tracking for the stored brief, kept in three small storage slots:
++ * the current phase, the numbers locked at sign off, and the running log.
++ * A phase only steps forward one place at a time, except a signed off brief
++ * which must be unlocked with a recorded note before it can be edited.
++ */
++
++const STATE_KEY = "dt-brief-phase";
++const LOCKED_KEY = "dt-brief-phase-locked";
++const LOG_KEY = "dt-brief-phase-log";
++
++const ORDER: LifecycleStatus[] = ["draft", "in-review", "ready", "signed-off"];
++
++const storageReady = (): boolean => {
++  if (typeof window === "undefined") return false;
++  try {
++    void window.localStorage.length;
++    return true;
++  } catch {
++    return false;
++  }
++};
++
++const readJson = (key: string): unknown => {
++  try {
++    const raw = window.localStorage.getItem(key);
++    return raw === null ? null : (JSON.parse(raw) as unknown);
++  } catch {
++    return null;
++  }
++};
++
++const writeJson = (key: string, value: unknown): boolean => {
++  try {
++    window.localStorage.setItem(key, JSON.stringify(value));
++    return true;
++  } catch {
++    return false;
++  }
++};
++
++const phaseOf = (raw: unknown): LifecycleStatus | null => {
++  return typeof raw === "string" && ORDER.includes(raw as LifecycleStatus) ? (raw as LifecycleStatus) : null;
++};
++
++interface StoredEvent {
++  at: string;
++  from: string | null;
++  to: string;
++  note: string;
++}
++
++const eventFrom = (raw: unknown): LifecycleEvent | null => {
++  if (typeof raw !== "object" || raw === null) return null;
++  const candidate = raw as Partial<StoredEvent>;
++  if (typeof candidate.at !== "string") return null;
++  if (typeof candidate.note !== "string") return null;
++  if (phaseOf(candidate.to) === null) return null;
++  if (candidate.from !== null && phaseOf(candidate.from) === null) return null;
++  return {
++    at: candidate.at,
++    from: candidate.from === null ? null : phaseOf(candidate.from),
++    to: phaseOf(candidate.to) as LifecycleStatus,
++    note: candidate.note,
++  };
++};
++
++const readLog = (): LifecycleEvent[] => {
++  const raw = readJson(LOG_KEY);
++  if (!Array.isArray(raw)) return [];
++  return raw.map(eventFrom).filter((entry): entry is LifecycleEvent => entry !== null);
++};
++
++const lockedFrom = (raw: unknown): FrozenEstimate | null => {
++  if (typeof raw !== "object" || raw === null) return null;
++  const candidate = raw as Record<string, unknown>;
++  const numbers = ["estimatedHours", "estimatedWeeks", "minCost", "maxCost"].every(
++    (field) => typeof candidate[field] === "number",
++  );
++  if (!numbers) return null;
++  if (candidate.risk !== "low" && candidate.risk !== "medium" && candidate.risk !== "high") return null;
++  return {
++    estimatedHours: candidate.estimatedHours as number,
++    estimatedWeeks: candidate.estimatedWeeks as number,
++    minCost: candidate.minCost as number,
++    maxCost: candidate.maxCost as number,
++    risk: candidate.risk,
++  };
++};
++
++const readPhase = (): LifecycleStatus => phaseOf(readJson(STATE_KEY)) ?? "draft";
++
++const stepFrom = (current: LifecycleStatus): LifecycleStatus | null => {
++  const index = ORDER.indexOf(current);
++  return index === ORDER.length - 1 ? null : ORDER[index + 1];
++};
++
++export const getStatus = (): LifecycleStatus => readPhase();
++
++export const transitionBrief = (
++  to: LifecycleStatus,
++  note = "",
++): { ok: true; status: LifecycleStatus; event: LifecycleEvent } | { ok: false; reason: "not-found" | "move-not-allowed" | "note-required" | "storage-unavailable"; message: string } => {
++  if (!storageReady()) {
++    return { ok: false, reason: "storage-unavailable", message: "Phase storage is not reachable." };
++  }
++  const brief = loadBrief();
++  if (brief === null) {
++    return { ok: false, reason: "not-found", message: "Save the brief before moving its phase." };
++  }
++  const current = readPhase();
++  const nextStep = stepFrom(current);
++  const reopening = current === "signed-off" && to === "draft";
++  if (to !== nextStep && !reopening) {
++    return { ok: false, reason: "move-not-allowed", message: `${current} cannot become ${to} in one move.` };
++  }
++  const cleaned = note.trim();
++  if (reopening && cleaned === "") {
++    return { ok: false, reason: "note-required", message: "An unlocked brief needs a note for the log." };
++  }
++  const hadPhase = readJson(STATE_KEY) !== null;
++  const entry: LifecycleEvent = {
++    at: new Date().toISOString(),
++    from: hadPhase ? current : null,
++    to,
++    note: cleaned,
++  };
++  const log = readLog();
++  if (!writeJson(LOG_KEY, [...log, entry])) {
++    return { ok: false, reason: "storage-unavailable", message: "The move could not be logged." };
++  }
++  if (!writeJson(STATE_KEY, to)) {
++    return { ok: false, reason: "storage-unavailable", message: "The phase could not be saved." };
++  }
++  if (to === "signed-off") {
++    const estimate = createEstimate(brief);
++    writeJson(LOCKED_KEY, {
++      estimatedHours: estimate.estimatedHours,
++      estimatedWeeks: estimate.estimatedWeeks,
++      minCost: estimate.minCost,
++      maxCost: estimate.maxCost,
++      risk: estimate.risk,
++    });
++  }
++  return { ok: true, status: to, event: entry };
++};
++
++export const getTrail = ():
++  | { ok: true; events: LifecycleEvent[] }
++  | { ok: false; reason: "not-found" | "storage-unavailable"; message: string } => {
++  if (!storageReady()) {
++    return { ok: false, reason: "storage-unavailable", message: "Phase storage is not reachable." };
++  }
++  if (loadBrief() === null) {
++    return { ok: false, reason: "not-found", message: "Save the brief before reading its log." };
++  }
++  return { ok: true, events: [...readLog()] };
++};
++
++export const getFrozenEstimate = ():
++  | { ok: true; estimate: FrozenEstimate }
++  | { ok: false; reason: "not-frozen" | "storage-unavailable"; message: string } => {
++  if (!storageReady()) {
++    return { ok: false, reason: "storage-unavailable", message: "Phase storage is not reachable." };
++  }
++  const locked = lockedFrom(readJson(LOCKED_KEY));
++  if (locked === null) {
++    return { ok: false, reason: "not-frozen", message: "Numbers lock when the brief is signed off." };
++  }
++  return { ok: true, estimate: locked };
++};
++
++export const ensureEditable = ():
++  | { ok: true }
++  | { ok: false; reason: "signed-off" | "storage-unavailable"; message: string } => {
++  if (!storageReady()) {
++    return { ok: false, reason: "storage-unavailable", message: "Phase storage is not reachable." };
++  }
++  if (readPhase() === "signed-off") {
++    return { ok: false, reason: "signed-off", message: "Locked at sign off. Unlock with a note first." };
++  }
++  return { ok: true };
++};
+diff --git a/app/(site)/brief/types.ts b/app/(site)/brief/types.ts
+index 693169a..2d967ad 100644
+--- a/app/(site)/brief/types.ts
++++ b/app/(site)/brief/types.ts
+@@ -252,3 +252,27 @@ export type BriefTemplate = {
+   timeline: TimelineRange;
+   attributes: string[];
+ };
++
++export type LifecycleStatus = "draft" | "in-review" | "ready" | "signed-off";
++
++export interface LifecycleEvent {
++  note: string;
++  to: LifecycleStatus;
++  from: LifecycleStatus | null;
++  at: string;
++}
++
++export interface FrozenEstimate {
++  maxCost: number;
++  minCost: number;
++  estimatedWeeks: number;
++  estimatedHours: number;
++  risk: RiskLevel;
++}
++
++export interface LifecycleRecord {
++  events: LifecycleEvent[];
++  frozenEstimate?: FrozenEstimate;
++  status: LifecycleStatus;
++  schema: 1;
++}
+diff --git a/tests/lifecycle.test.ts b/tests/lifecycle.test.ts
+new file mode 100644
+index 0000000..81d0465
+--- /dev/null
++++ b/tests/lifecycle.test.ts
+@@ -0,0 +1,125 @@
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++import { saveBrief } from "../app/(site)/brief/storage";
++import { createEmptyBrief } from "../app/(site)/brief/defaults";
++import { buildLifecycleText } from "../app/(site)/brief/export";
++import {
++  ensureEditable,
++  getFrozenEstimate,
++  getStatus,
++  getTrail,
++  transitionBrief,
++} from "../app/(site)/brief/lifecycle";
++
++const backing = new Map<string, string>();
++const storageStub = {
++  getItem: (key: string) => backing.get(key) ?? null,
++  setItem: (key: string, value: string) => void backing.set(key, value),
++  removeItem: (key: string) => void backing.delete(key),
++  clear: () => void backing.clear(),
++  length: 0,
++  key: (_index: number) => null,
++};
++
++beforeEach(() => {
++  backing.clear();
++  vi.stubGlobal("window", { localStorage: storageStub });
++});
++
++afterEach(() => {
++  vi.unstubAllGlobals();
++});
++
++const plantBrief = () => {
++  const brief = createEmptyBrief();
++  brief.projectName = "Phase coverage";
++  saveBrief(brief);
++  return brief;
++};
++
++describe("phase machine", () => {
++  it("begins in draft", () => {
++    plantBrief();
++    expect(getStatus()).toBe("draft");
++  });
++
++  it("walks the full path to signed off", () => {
++    plantBrief();
++    expect(transitionBrief("in-review").ok).toBe(true);
++    expect(transitionBrief("ready").ok).toBe(true);
++    expect(transitionBrief("signed-off").ok).toBe(true);
++    expect(getStatus()).toBe("signed-off");
++  });
++
++  it("blocks jumping ahead", () => {
++    plantBrief();
++    const jump = transitionBrief("ready");
++    expect(jump.ok).toBe(false);
++  });
++
++  it("demands a note to unlock", () => {
++    plantBrief();
++    transitionBrief("in-review");
++    transitionBrief("ready");
++    transitionBrief("signed-off");
++    expect(transitionBrief("draft").ok).toBe(false);
++    expect(transitionBrief("draft", "pricing reopened").ok).toBe(true);
++  });
++});
++
++describe("phase log", () => {
++  it("grows by one entry per move", () => {
++    plantBrief();
++    transitionBrief("in-review");
++    transitionBrief("ready");
++    const log = getTrail();
++    expect(log.ok && log.events.length === 2).toBe(true);
++  });
++
++  it("keeps the unlock note on the record", () => {
++    plantBrief();
++    transitionBrief("in-review");
++    transitionBrief("ready");
++    transitionBrief("signed-off");
++    transitionBrief("draft", "scope widened");
++    const log = getTrail();
++    if (!log.ok) return;
++    const final = log.events[log.events.length - 1];
++    expect(final.note).toBe("scope widened");
++  });
++
++  it("renders each move as a line", () => {
++    plantBrief();
++    transitionBrief("in-review");
++    const log = getTrail();
++    if (!log.ok) return;
++    expect(buildLifecycleText(log.events)).toBe("start -> in-review");
++  });
++
++  it("says so when nothing has happened yet", () => {
++    expect(buildLifecycleText([])).toBe("No lifecycle moves");
++  });
++});
++
++describe("locked numbers", () => {
++  it("locks only at sign off", () => {
++    plantBrief();
++    transitionBrief("in-review");
++    expect(getFrozenEstimate().ok).toBe(false);
++    transitionBrief("ready");
++    transitionBrief("signed-off");
++    expect(getFrozenEstimate().ok).toBe(true);
++  });
++});
++
++describe("edit lock", () => {
++  it("open while drafting, shut once signed off, open after unlock", () => {
++    plantBrief();
++    expect(ensureEditable().ok).toBe(true);
++    transitionBrief("in-review");
++    transitionBrief("ready");
++    transitionBrief("signed-off");
++    expect(ensureEditable().ok).toBe(false);
++    transitionBrief("draft", "client edit round");
++    expect(ensureEditable().ok).toBe(true);
++  });
++});

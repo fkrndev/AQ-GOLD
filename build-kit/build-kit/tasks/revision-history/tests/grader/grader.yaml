@@ -1,0 +1,330 @@
+task_id: "revision-history"
+subset: extended
+base_commit: "7006cf0dae7c9b07b55be3cf569050a9240b9bcb"
+low_quality_threshold: 0.5
+criteria:
+  - id: f2p
+    category: patch_specific
+    description: The new tests that prove the change pass.
+    method: classical
+    blocker: true
+    weight: 1
+    role: f2p
+    command: "mkdir -p tests/hidden /logs/verifier && cp /tests/hidden/*.test.ts tests/hidden/ && npx vitest run tests/hidden --reporter=junit --outputFile=/logs/verifier/f2p.xml"
+    timeout_seconds: 120
+    report: /logs/verifier/f2p.xml
+    tests:
+      - "tests/hidden/restore-cap.hidden.test.ts.hidden cap eviction with anchor > hidden_anchor_cannot_be_deleted_even_when_full"
+      - "tests/hidden/restore-cap.hidden.test.ts.hidden cap eviction with anchor > hidden_anchor_is_oldest_and_survives"
+      - "tests/hidden/restore-cap.hidden.test.ts.hidden cap eviction with anchor > hidden_cap_is_exactly_max_revisions"
+      - "tests/hidden/restore-cap.hidden.test.ts.hidden cap eviction with anchor > hidden_eviction_respects_same_name_replacement"
+      - "tests/hidden/restore-cap.hidden.test.ts.hidden cap eviction with anchor > hidden_non_anchor_old_entries_are_evicted"
+      - "tests/hidden/restore-cap.hidden.test.ts.hidden restore semantics > hidden_double_restore_keeps_original"
+      - "tests/hidden/restore-cap.hidden.test.ts.hidden restore semantics > hidden_restore_appends_restored_suffix"
+      - "tests/hidden/restore-cap.hidden.test.ts.hidden restore semantics > hidden_restore_gives_new_revision_a_fresh_id"
+      - "tests/hidden/restore-cap.hidden.test.ts.hidden restore semantics > hidden_restore_not_found_is_reported"
+      - "tests/hidden/restore-cap.hidden.test.ts.hidden restore semantics > hidden_restore_preserves_original_unchanged"
+      - "tests/hidden/restore-cap.hidden.test.ts.hidden restore semantics > hidden_restore_then_delete_original_leaves_restored"
+      - "tests/hidden/restore-cap.hidden.test.ts.hidden revision edge cases > hidden_delete_then_save_same_name_works"
+      - "tests/hidden/restore-cap.hidden.test.ts.hidden revision edge cases > hidden_name_trimming_is_applied"
+      - "tests/hidden/restore-cap.hidden.test.ts.hidden revision edge cases > hidden_saved_revision_carries_brief_id"
+      - "tests/hidden/restore-cap.hidden.test.ts.hidden revision export > hidden_export_handles_empty_history"
+      - "tests/hidden/restore-cap.hidden.test.ts.hidden revision export > hidden_export_includes_all_names"
+      - "tests/hidden/restore-cap.hidden.test.ts.hidden revision export > hidden_export_with_many_revisions"
+      - "tests/hidden/restore-cap.hidden.test.ts.hidden revision listing determinism > hidden_listing_after_delete_shrinks"
+      - "tests/hidden/restore-cap.hidden.test.ts.hidden revision listing determinism > hidden_listing_is_stable_across_calls"
+      - "tests/hidden/restore-cap.hidden.test.ts.hidden revision listing determinism > hidden_revision_meta_fields_are_strings"
+      - "tests/hidden/revisions.hidden.test.ts.hidden buildRevisionListText > hidden_empty_revision_export"
+      - "tests/hidden/revisions.hidden.test.ts.hidden buildRevisionListText > hidden_exports_revision_names"
+      - "tests/hidden/revisions.hidden.test.ts.hidden cap eviction > hidden_anchor_survives_eviction"
+      - "tests/hidden/revisions.hidden.test.ts.hidden cap eviction > hidden_caps_at_max_revisions"
+      - "tests/hidden/revisions.hidden.test.ts.hidden cap eviction > hidden_oldest_non_anchor_evicted_first"
+      - "tests/hidden/revisions.hidden.test.ts.hidden deleteRevision > hidden_deletes_a_non_anchor_revision"
+      - "tests/hidden/revisions.hidden.test.ts.hidden deleteRevision > hidden_not_found_when_deleting_unknown"
+      - "tests/hidden/revisions.hidden.test.ts.hidden deleteRevision > hidden_refuses_to_delete_the_anchor"
+      - "tests/hidden/revisions.hidden.test.ts.hidden loadRevision > hidden_loads_by_exact_name"
+      - "tests/hidden/revisions.hidden.test.ts.hidden loadRevision > hidden_not_found_for_unknown_name"
+      - "tests/hidden/revisions.hidden.test.ts.hidden restoreRevision > hidden_not_found_when_restoring_unknown"
+      - "tests/hidden/revisions.hidden.test.ts.hidden restoreRevision > hidden_restore_adds_a_restored_copy"
+      - "tests/hidden/revisions.hidden.test.ts.hidden restoreRevision > hidden_restore_creates_new_revision_not_overwrite"
+      - "tests/hidden/revisions.hidden.test.ts.hidden saveRevision and listRevisions > hidden_empty_history_returns_empty_list"
+      - "tests/hidden/revisions.hidden.test.ts.hidden saveRevision and listRevisions > hidden_listing_returns_metadata_without_brief"
+      - "tests/hidden/revisions.hidden.test.ts.hidden saveRevision and listRevisions > hidden_lists_newest_first"
+      - "tests/hidden/revisions.hidden.test.ts.hidden saveRevision and listRevisions > hidden_refuses_blank_name"
+      - "tests/hidden/revisions.hidden.test.ts.hidden saveRevision and listRevisions > hidden_same_name_replaces_not_duplicates"
+      - "tests/hidden/revisions.hidden.test.ts.hidden saveRevision and listRevisions > hidden_saves_and_lists_a_revision"
+      - "tests/hidden/revisions.hidden.test.ts.hidden storage unavailable > hidden_list_reports_storage_unavailable"
+      - "tests/hidden/revisions.hidden.test.ts.hidden storage unavailable > hidden_save_reports_storage_unavailable"
+      - "tests/hidden/robustness.hidden.test.ts.hidden corrupt stored history > hidden_garbage_history_lists_as_empty"
+      - "tests/hidden/robustness.hidden.test.ts.hidden corrupt stored history > hidden_load_after_corrupt_history_is_not_found"
+      - "tests/hidden/robustness.hidden.test.ts.hidden corrupt stored history > hidden_null_entries_in_history_do_not_crash"
+      - "tests/hidden/robustness.hidden.test.ts.hidden corrupt stored history > hidden_save_works_after_corrupt_history"
+      - "tests/hidden/robustness.hidden.test.ts.hidden corrupt stored history > hidden_wrong_shape_history_lists_as_empty"
+      - "tests/hidden/robustness.hidden.test.ts.hidden export without storage > hidden_export_text_needs_no_storage"
+      - "tests/hidden/robustness.hidden.test.ts.hidden failing writes > hidden_setitem_failure_reports_storage_unavailable"
+  - id: p2p
+    category: regular
+    description: The existing tests next to the change keep passing.
+    method: classical
+    blocker: true
+    weight: 1
+    role: p2p
+    command: "mkdir -p /logs/verifier && npx vitest run tests/*.test.ts --reporter=junit --outputFile=/logs/verifier/p2p.xml"
+    timeout_seconds: 120
+    report: /logs/verifier/p2p.xml
+    tests:
+      - "tests/analysis.test.ts.audience signal > demands attention when no audience is defined"
+      - "tests/analysis.test.ts.audience signal > is neutral when several groups are in scope"
+      - "tests/analysis.test.ts.audience signal > is positive when exactly one primary audience has useful context"
+      - "tests/analysis.test.ts.brand signal > demands attention without any attributes"
+      - "tests/analysis.test.ts.brand signal > is neutral when attributes exist without avoid territory"
+      - "tests/analysis.test.ts.brand signal > is positive when attributes and avoid territory are defined"
+      - "tests/analysis.test.ts.decision signal > demands attention when nobody is accountable"
+      - "tests/analysis.test.ts.decision signal > is neutral when several people share the final call"
+      - "tests/analysis.test.ts.decision signal > is positive with a single decision-maker"
+      - "tests/analysis.test.ts.delivery signal > demands attention for a launch less than thirty days away"
+      - "tests/analysis.test.ts.delivery signal > demands attention when no timing is set"
+      - "tests/analysis.test.ts.delivery signal > is positive for flexible timing"
+      - "tests/analysis.test.ts.delivery signal > reads naturally for a bounded timeline"
+      - "tests/analysis.test.ts.describeSelectedServices > falls back to a scope placeholder when no deliverables match"
+      - "tests/analysis.test.ts.describeSelectedServices > ignores deliverables marked not-needed"
+      - "tests/analysis.test.ts.describeSelectedServices > lists included deliverables for a service"
+      - "tests/analysis.test.ts.describeSelectedServices > lists several included deliverables separated by commas"
+      - "tests/analysis.test.ts.project risk signal > labels a high risk brief as attention"
+      - "tests/analysis.test.ts.project risk signal > labels a low risk brief as positive"
+      - "tests/analysis.test.ts.review agenda > always opens by confirming the outcome and audience"
+      - "tests/analysis.test.ts.review agenda > includes a risk discussion when risk is not low"
+      - "tests/analysis.test.ts.review agenda > includes investment guardrails when a budget is set"
+      - "tests/analysis.test.ts.review agenda > includes scope sequencing when services are selected"
+      - "tests/analysis.test.ts.review agenda > names an accountable decision-maker when none exists"
+      - "tests/analysis.test.ts.scope recommendations > asks for a review rhythm when content needs weekly ownership"
+      - "tests/analysis.test.ts.scope recommendations > asks for film references when production has none"
+      - "tests/analysis.test.ts.scope recommendations > asks for packaging constraints when packaging is in scope"
+      - "tests/analysis.test.ts.scope recommendations > caps recommendations at seven"
+      - "tests/analysis.test.ts.scope recommendations > does not suggest campaign guardrails when the brand is defined"
+      - "tests/analysis.test.ts.scope recommendations > sorts recommendations with 'now' before 'next' before 'watch'"
+      - "tests/analysis.test.ts.scope recommendations > suggests campaign guardrails when a campaign lacks brand foundations"
+      - "tests/analysis.test.ts.scope recommendations > suggests design before build when only development is selected"
+      - "tests/analysis.test.ts.scope recommendations > surfaces technical requirements for a digital build"
+      - "tests/analysis.test.ts.scope signal > demands attention when nothing is core"
+      - "tests/analysis.test.ts.scope signal > is neutral for a broad core scope"
+      - "tests/analysis.test.ts.scope signal > is positive for a focused core scope"
+      - "tests/analysis.test.ts.strategic questions > asks about brand equity at the brand stage"
+      - "tests/analysis.test.ts.strategic questions > asks about competitors when none are listed"
+      - "tests/analysis.test.ts.strategic questions > asks about content ownership when a site is being built"
+      - "tests/analysis.test.ts.strategic questions > asks about launch-day readiness at the launch stage"
+      - "tests/analysis.test.ts.strategic questions > asks about the audience when none is defined"
+      - "tests/analysis.test.ts.strategic questions > asks how feedback is consolidated when many stakeholders are involved"
+      - "tests/analysis.test.ts.strategic questions > falls back to a success question when nothing else applies"
+      - "tests/analysis.test.ts.strategic questions > never emits the same question twice and stays within five"
+      - "tests/catalog.test.ts.DELIVERABLE_CATALOG > exposes unique deliverable ids"
+      - "tests/catalog.test.ts.DELIVERABLE_CATALOG > gives every deliverable a name, unit label and category"
+      - "tests/catalog.test.ts.DELIVERABLE_CATALOG > holds twenty-two deliverables"
+      - "tests/catalog.test.ts.DELIVERABLE_CATALOG > keeps additional costs and hours non-negative"
+      - "tests/catalog.test.ts.DELIVERABLE_CATALOG > resolves every includedWith reference to a real service"
+      - "tests/catalog.test.ts.SERVICE_CATALOG > exposes unique service ids"
+      - "tests/catalog.test.ts.SERVICE_CATALOG > gives every service a category, name and summary"
+      - "tests/catalog.test.ts.SERVICE_CATALOG > gives every service a plausible cost and hour range"
+      - "tests/catalog.test.ts.SERVICE_CATALOG > holds eighteen services"
+      - "tests/catalog.test.ts.SERVICE_CATALOG > lets every service dependency resolve to a catalog entry"
+      - "tests/catalog.test.ts.SERVICE_CATALOG > points every service deliverable at a real deliverable"
+      - "tests/catalog.test.ts.catalog integrity > every includedWith deliverable is delivered by at least one service"
+      - "tests/catalog.test.ts.catalog integrity > every service deliverable is also defined in the deliverable catalog"
+      - "tests/catalog.test.ts.category helpers > derives unique deliverable categories"
+      - "tests/catalog.test.ts.category helpers > derives unique service categories"
+      - "tests/catalog.test.ts.lookups > finds a deliverable by id"
+      - "tests/catalog.test.ts.lookups > finds a service by id"
+      - "tests/catalog.test.ts.lookups > returns undefined for an unknown deliverable"
+      - "tests/catalog.test.ts.lookups > returns undefined for an unknown service"
+      - "tests/data.test.ts.brands data > gives every brand a name and a logo path"
+      - "tests/data.test.ts.brands data > gives every brand a unique id"
+      - "tests/data.test.ts.brands data > holds seventeen brands"
+      - "tests/data.test.ts.reasons data > holds thirty-three reasons"
+      - "tests/data.test.ts.reasons data > keeps every reason non-empty and unique"
+      - "tests/data.test.ts.reasons data > returns a reason from the defined list"
+      - "tests/data.test.ts.team data > gives every member a name, image and description"
+      - "tests/data.test.ts.team data > gives every team member a unique id within its group"
+      - "tests/data.test.ts.team data > has two featured founders and eleven team members"
+      - "tests/data.test.ts.works data > gives every work a non-empty services list"
+      - "tests/data.test.ts.works data > gives every work a title, client and description"
+      - "tests/data.test.ts.works data > gives every work a unique id and slug"
+      - "tests/data.test.ts.works data > holds five portfolio entries"
+      - "tests/data.test.ts.works data > uses image paths under the images directory"
+      - "tests/defaults.test.ts.cloneBrief > deep-copies nested arrays"
+      - "tests/defaults.test.ts.cloneBrief > preserves the original values in the clone"
+      - "tests/defaults.test.ts.createEmptyBrief > creates a brief with the current schema version"
+      - "tests/defaults.test.ts.createEmptyBrief > gives every brief a unique id"
+      - "tests/defaults.test.ts.createEmptyBrief > initialises every collection field as empty"
+      - "tests/defaults.test.ts.createEmptyBrief > initialises every scalar field as empty"
+      - "tests/defaults.test.ts.createEmptyBrief > timestamps the brief as an ISO string"
+      - "tests/defaults.test.ts.touchBrief > returns a new object with a fresh updatedAt timestamp"
+      - "tests/estimate.test.ts.createEstimate > adds a platform assumption when the scope includes a website build"
+      - "tests/estimate.test.ts.createEstimate > adds a production assumption when the scope includes film"
+      - "tests/estimate.test.ts.createEstimate > adds an additional-volume line when quantity exceeds the default"
+      - "tests/estimate.test.ts.createEstimate > adds an option line for a deliverable under consideration"
+      - "tests/estimate.test.ts.createEstimate > applies the complexity multiplier for an ambitious brief"
+      - "tests/estimate.test.ts.createEstimate > applies the risk multiplier to the maximum for urgent briefs"
+      - "tests/estimate.test.ts.createEstimate > applies the supporting priority multiplier to service lines"
+      - "tests/estimate.test.ts.createEstimate > applies the urgency multiplier for an under-four-week timeline"
+      - "tests/estimate.test.ts.createEstimate > builds four milestones whose payment shares total one hundred"
+      - "tests/estimate.test.ts.createEstimate > computes a deterministic estimate for a single core service"
+      - "tests/estimate.test.ts.createEstimate > does not add a line for a required deliverable at default quantity"
+      - "tests/estimate.test.ts.createEstimate > excludes web development when the scope has no digital build"
+      - "tests/estimate.test.ts.createEstimate > includes the four standard assumptions"
+      - "tests/estimate.test.ts.createEstimate > keeps the exclusions list deduplicated"
+      - "tests/estimate.test.ts.createEstimate > reports a ready confidence when enough signals are present"
+      - "tests/estimate.test.ts.createEstimate > returns an empty, early estimate for an empty brief"
+      - "tests/estimate.test.ts.estimateSummary > joins the currency range with the week estimate"
+      - "tests/estimate.test.ts.formatCurrency and formatNumber > formats large numbers with Indian digit grouping"
+      - "tests/estimate.test.ts.formatCurrency and formatNumber > formats whole numbers in Indian rupee notation"
+      - "tests/estimate.test.ts.formatCurrency and formatNumber > rounds fractional amounts before formatting"
+      - "tests/estimate.test.ts.getMissingDependencies > reports a service whose dependency is not selected"
+      - "tests/estimate.test.ts.getMissingDependencies > reports nothing when all dependencies are selected"
+      - "tests/estimate.test.ts.getMissingDependencies > reports one entry per missing dependency"
+      - "tests/estimate.test.ts.getRisk > adds one point for a launch within 60 days"
+      - "tests/estimate.test.ts.getRisk > adds two points for a launch less than 30 days away"
+      - "tests/estimate.test.ts.getRisk > flags an urgent timeline as at least medium risk"
+      - "tests/estimate.test.ts.getRisk > ignores a distant launch date"
+      - "tests/estimate.test.ts.getRisk > returns high when many risk signals combine"
+      - "tests/estimate.test.ts.getRisk > returns low for a simple, unhurried brief"
+      - "tests/estimate.test.ts.getRisk > treats a four-to-six week timeline as one risk point"
+      - "tests/export.test.ts.buildBriefCsv > includes the core identity fields"
+      - "tests/export.test.ts.buildBriefCsv > includes the estimate figures"
+      - "tests/export.test.ts.buildBriefCsv > joins list fields with a pipe separator"
+      - "tests/export.test.ts.buildBriefCsv > quotes and escapes values that contain commas or quotes"
+      - "tests/export.test.ts.buildBriefCsv > writes a header row and one row per field"
+      - "tests/export.test.ts.buildBriefText > excludes deliverables that are not needed"
+      - "tests/export.test.ts.buildBriefText > falls back to Not provided for missing context fields"
+      - "tests/export.test.ts.buildBriefText > includes the early planning estimate section"
+      - "tests/export.test.ts.buildBriefText > includes the project and organisation names"
+      - "tests/export.test.ts.buildBriefText > lists the selected services with their priority"
+      - "tests/export.test.ts.buildBriefText > lists validation issues when the brief is incomplete"
+      - "tests/export.test.ts.buildBriefText > marks stakeholders who can make the final decision"
+      - "tests/export.test.ts.buildBriefText > opens with the document header"
+      - "tests/export.test.ts.buildBriefText > reads back the readiness label"
+      - "tests/export.test.ts.buildBriefText > renders audience profiles with their needs and barriers"
+      - "tests/export.test.ts.buildBriefText > renders empty lists as Not provided"
+      - "tests/export.test.ts.buildBriefText > reports No issues found for a complete brief"
+      - "tests/export.test.ts.safeFilename > collapses repeated separators"
+      - "tests/export.test.ts.safeFilename > falls back when nothing recognisable remains"
+      - "tests/export.test.ts.safeFilename > handles mixed case and punctuation"
+      - "tests/export.test.ts.safeFilename > slugs a title into a filesystem-safe name"
+      - "tests/storage.test.ts.normalizeBrief > coerces non-string scalars to empty strings"
+      - "tests/storage.test.ts.normalizeBrief > defaults an unknown audience priority to primary"
+      - "tests/storage.test.ts.normalizeBrief > defaults an unknown deliverable status and a bad quantity"
+      - "tests/storage.test.ts.normalizeBrief > defaults an unknown service priority to core"
+      - "tests/storage.test.ts.normalizeBrief > drops non-string entries from string arrays"
+      - "tests/storage.test.ts.normalizeBrief > fills missing fields from the empty brief defaults"
+      - "tests/storage.test.ts.normalizeBrief > normalises decision maker flags to booleans"
+      - "tests/storage.test.ts.normalizeBrief > rejects malformed selected services"
+      - "tests/storage.test.ts.saveBrief and loadBrief > clears the saved brief"
+      - "tests/storage.test.ts.saveBrief and loadBrief > persists and reloads a brief"
+      - "tests/storage.test.ts.saveBrief and loadBrief > returns false when storage is unavailable"
+      - "tests/storage.test.ts.saveBrief and loadBrief > returns null for a corrupt payload"
+      - "tests/storage.test.ts.saveBrief and loadBrief > returns null for a payload with the wrong schema"
+      - "tests/storage.test.ts.saveBrief and loadBrief > returns null when nothing has been saved"
+      - "tests/storage.test.ts.saveBrief and loadBrief > returns null when storage is unavailable"
+      - "tests/storage.test.ts.saveBrief and loadBrief > round-trips nested arrays"
+      - "tests/templates.test.ts.BRIEF_TEMPLATES > exposes unique template ids"
+      - "tests/templates.test.ts.BRIEF_TEMPLATES > gives every template a name and description"
+      - "tests/templates.test.ts.BRIEF_TEMPLATES > gives every template non-empty, unique attributes"
+      - "tests/templates.test.ts.BRIEF_TEMPLATES > holds seven templates"
+      - "tests/templates.test.ts.BRIEF_TEMPLATES > resolves every template deliverable against the catalog"
+      - "tests/templates.test.ts.BRIEF_TEMPLATES > resolves every template service against the catalog"
+      - "tests/templates.test.ts.BRIEF_TEMPLATES > uses valid stage, priority and timeline values"
+      - "tests/templates.test.ts.getTemplate > finds a template by id"
+      - "tests/templates.test.ts.getTemplate > returns undefined for an unknown template"
+      - "tests/validation.test.ts.BRIEF_STEPS > covers every step id referenced by validation"
+      - "tests/validation.test.ts.firstErrorStep > names the first step containing an error"
+      - "tests/validation.test.ts.firstErrorStep > returns null when no errors remain"
+      - "tests/validation.test.ts.issuesForStep > filters issues by their owning step"
+      - "tests/validation.test.ts.issuesForStep > returns an empty list when a step is clean"
+      - "tests/validation.test.ts.readinessScore and readinessLabel > clamps the empty brief score to zero"
+      - "tests/validation.test.ts.readinessScore and readinessLabel > labels scores by band"
+      - "tests/validation.test.ts.readinessScore and readinessLabel > scores a complete brief at one hundred"
+      - "tests/validation.test.ts.stepCompletion > reports full completion when a step is clean"
+      - "tests/validation.test.ts.stepCompletion > reports partial completion for a step with only warnings"
+      - "tests/validation.test.ts.stepCompletion > reports zero for a step with blocking errors"
+      - "tests/validation.test.ts.validateBrief > accepts a launch date today or later"
+      - "tests/validation.test.ts.validateBrief > accepts a syntactically valid email address"
+      - "tests/validation.test.ts.validateBrief > collects the full set of issues for an empty brief"
+      - "tests/validation.test.ts.validateBrief > flags a launch date in the past"
+      - "tests/validation.test.ts.validateBrief > flags an unnamed audience group"
+      - "tests/validation.test.ts.validateBrief > flags missing budget and timeline as errors"
+      - "tests/validation.test.ts.validateBrief > rejects an invalid email address"
+      - "tests/validation.test.ts.validateBrief > requires a project summary of at least forty characters"
+      - "tests/validation.test.ts.validateBrief > requires at least one audience group"
+      - "tests/validation.test.ts.validateBrief > requires consent to contact before the brief can be approved"
+      - "tests/validation.test.ts.validateBrief > returns no issues for a fully completed brief"
+      - "tests/validation.test.ts.validateBrief > warns about audiences with a thin description"
+      - "tests/validation.test.ts.validateBrief > warns about missing business context without blocking"
+      - "tests/validation.test.ts.validateBrief > warns about missing dependencies for selected services"
+      - "tests/validation.test.ts.validateBrief > warns when fewer than three brand attributes are chosen"
+      - "tests/validation.test.ts.validateBrief > warns when no deliverable is required"
+      - "tests/validation.test.ts.validateBrief > warns when stakeholders exist but no one can make the final decision"
+      - "tests/validation.test.ts.validateBrief > warns when the scope lists at least seven services"
+  - id: lint
+    category: regular
+    description: The workspace passes its own lint and type checks.
+    method: command
+    blocker: true
+    weight: 1
+    command: "rm -rf tests/hidden && npm run lint && ./node_modules/.bin/tsc --noEmit"
+    timeout_seconds: 180
+  - id: protected_surfaces
+    category: regular
+    description: The change leaves the protected surfaces alone and stays within a generous size cap.
+    method: scope
+    blocker: true
+    weight: 1
+    scope:
+      allowed_paths:
+        - "*"
+      denied_paths:
+        - "package.json"
+        - "package-lock.json"
+        - "next.config.ts"
+        - "tsconfig.json"
+        - "vitest.config.ts"
+        - "tailwind.config.ts"
+        - "postcss.config.mjs"
+        - "eslint.config.mjs"
+        - "sanity.config.ts"
+        - "sanity.cli.ts"
+        - "app/studio/**"
+        - "app/(site)/brief/catalog.ts"
+        - "scripts/**"
+        - "public/**"
+      max_files: 40
+      max_changed_lines: 8000
+  - id: focused_change
+    category: patch_specific
+    description: The change stays within the brief engine and its tests, bounded in size.
+    method: scope
+    blocker: false
+    weight: 0.1
+    scope:
+      allowed_paths:
+        - "app/(site)/brief/**"
+        - "tests/**"
+      denied_paths: []
+      max_files: 12
+      max_changed_lines: 2500
+calibrations:
+  - id: alternative-valid
+    type: alternative_valid
+    patch: solution/alternative.patch
+    criteria_results:
+      - criterion_id: f2p
+        passed: true
+        score: 1
+      - criterion_id: p2p
+        passed: true
+        score: 1
+  - id: plausible-negative
+    type: negative
+    patch: solution/negative.patch
+    criteria_results:
+      - criterion_id: f2p
+        passed: false
+        score: 0

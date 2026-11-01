@@ -1,0 +1,600 @@
+diff --git a/app/(site)/brief/BriefWorkspace.tsx b/app/(site)/brief/BriefWorkspace.tsx
+index b95e166..5a119af 100644
+--- a/app/(site)/brief/BriefWorkspace.tsx
++++ b/app/(site)/brief/BriefWorkspace.tsx
+@@ -8,11 +8,13 @@ import { Checkbox, ChoiceCard, Field, SelectInput, StringListEditor, TagPicker,
+ import { createEmptyBrief, touchBrief } from "./defaults";
+ import { buildBriefCsv, buildBriefText, downloadFile, safeFilename } from "./export";
+ import { createEstimate, estimateSummary, formatCurrency, formatNumber, getMissingDependencies } from "./estimate";
++import { compressForLaunch } from "./rebalance";
++import { MilestoneControls } from "./MilestoneControls";
+ import { getTemplate, BRIEF_TEMPLATES } from "./templates";
+ import { clearBrief, loadBrief, saveBrief } from "./storage";
+ import { firstErrorStep, issuesForStep, readinessLabel, readinessScore, stepCompletion, validateBrief } from "./validation";
+ import { analyseBrief } from "./analysis";
+-import type { AudienceProfile, BriefStepId, Competitor, DeliverableId, ProjectBrief, SelectedDeliverable, SelectedService, ServiceId, Stakeholder } from "./types";
++import type { AudienceProfile, BriefStepId, Competitor, DeliverableId, EstimateMilestone, ProjectBrief, SelectedDeliverable, SelectedService, ServiceId, Stakeholder } from "./types";
+ 
+ const makeId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+ 
+@@ -39,6 +41,9 @@ export default function BriefWorkspace() {
+   const [hydrated, setHydrated] = useState(false);
+   const [savedAt, setSavedAt] = useState<string | null>(null);
+   const [showTemplates, setShowTemplates] = useState(false);
++  const [lockedMilestones, setLockedMilestones] = useState<string[]>([]);
++  const [fittedMilestones, setFittedMilestones] = useState<EstimateMilestone[] | null>(null);
++  const [fitMessage, setFitMessage] = useState<string | null>(null);
+   const [serviceFilter, setServiceFilter] = useState("All");
+   const [submitted, setSubmitted] = useState(false);
+ 
+@@ -137,6 +142,23 @@ export default function BriefWorkspace() {
+     setSubmitted(true);
+   };
+ 
++  const toggleLock = (id: string, locked: boolean) => {
++    setLockedMilestones((current) => locked ? [...current, id] : current.filter((entry) => entry !== id));
++    setFittedMilestones(null);
++    setFitMessage(null);
++  };
++
++  const fitToLaunch = () => {
++    if (!brief.launchDate) return;
++    const outcome = compressForLaunch(estimate.milestones, new Date().toISOString().slice(0, 10), brief.launchDate, lockedMilestones);
++    if (outcome.ok) {
++      setFittedMilestones(outcome.milestones);
++      setFitMessage("Plan fitted to the launch date. Pinned milestones kept their weeks.");
++    } else {
++      setFitMessage(outcome.releaseCandidates.length > 0 ? `${outcome.message} Release: ${outcome.releaseCandidates.join(", ")}.` : outcome.message);
++    }
++  };
++
+   const resetBrief = () => {
+     clearBrief();
+     setBrief(createEmptyBrief());
+@@ -238,7 +260,7 @@ export default function BriefWorkspace() {
+       <div className="brief-readiness"><div className="brief-readiness__score"><strong>{score}</strong><span>/ 100</span></div><div><h3>{readinessLabel(score)}</h3><p>{issues.filter((item) => item.severity === "error").length} items need attention and {issues.filter((item) => item.severity === "warning").length} items would strengthen the conversation.</p></div><div className="brief-progress"><span style={{ width: `${score}%` }} /></div></div>
+       {issues.length ? <div className="brief-review-issues"><h3>Before sending</h3>{BRIEF_STEPS.map((step) => { const stepIssues = issuesForStep(issues, step.id); if (!stepIssues.length) return null; return <div key={step.id}><button type="button" onClick={() => setActiveStep(step.id)}>{step.shortLabel}</button>{stepIssues.map((item) => <p key={`${item.path}-${item.message}`} className={item.severity}>{item.message}</p>)}</div>; })}</div> : <div className="brief-success-message"><strong>The brief is ready for a first discussion.</strong><span>Review the early estimate and export the summary when you are ready.</span></div>}
+       <section className="brief-estimate"><div className="brief-estimate__hero"><p>Indicative project range</p><h3>{formatCurrency(estimate.minCost)} <span>to</span> {formatCurrency(estimate.maxCost)}</h3><span>{estimateSummary(estimate)}</span></div><div className="brief-estimate__facts"><div><span>Effort</span><strong>{formatNumber(estimate.estimatedHours)} hours</strong></div><div><span>Delivery</span><strong>~{estimate.estimatedWeeks} weeks</strong></div><div><span>Risk</span><strong className={`risk-${estimate.risk}`}>{estimate.risk}</strong></div><div><span>Confidence</span><strong>{estimate.confidence}</strong></div></div></section>
+-      <section className="brief-milestones"><h3>Working milestones</h3><div>{estimate.milestones.map((milestone) => <article key={milestone.id}><span>{milestone.paymentPercent}%</span><div><strong>{milestone.name}</strong><p>{milestone.weeks} week{milestone.weeks === 1 ? "" : "s"} - {milestone.description}</p><small>{milestone.outputs.join(" / ")}</small></div></article>)}</div></section>
++      <MilestoneControls milestones={fittedMilestones ?? estimate.milestones} lockedIds={lockedMilestones} onToggleLock={toggleLock} onFitToLaunch={fitToLaunch} fitMessage={fitMessage} showLaunchFit={Boolean(brief.launchDate)} />
+       <section className="brief-analysis"><div className="brief-analysis__heading"><h3>Scope signals</h3><p>A quick read of the conditions that will shape the engagement.</p></div><div className="brief-analysis__signals">{analysis.signals.map((signal) => <article key={signal.label} className={`status-${signal.status}`}><span>{signal.label}</span><strong>{signal.value}</strong><small>{signal.detail}</small></article>)}</div></section>
+       <section className="brief-analysis"><div className="brief-analysis__heading"><h3>Recommended conversation points</h3><p>Use these prompts to turn the first discussion into a clear next step.</p></div><div className="brief-analysis__recommendations">{analysis.recommendations.length ? analysis.recommendations.map((recommendation) => <article key={recommendation.id}><span className={`priority-${recommendation.priority}`}>{recommendation.priority}</span><div><strong>{recommendation.title}</strong><p>{recommendation.detail}</p><button type="button" onClick={() => setActiveStep(recommendation.relatedStep)}>{recommendation.action}</button></div></article>) : <p className="brief-analysis__empty">The brief has enough detail to move into a focused scoping discussion.</p>}</div></section>
+       <div className="brief-review-grid"><section><h3>Questions to resolve</h3><ul>{analysis.strategicQuestions.map((question) => <li key={question}>{question}</li>)}</ul></section><section><h3>First meeting agenda</h3><ul>{analysis.reviewAgenda.map((agendaItem) => <li key={agendaItem}>{agendaItem}</li>)}</ul></section></div>
+diff --git a/app/(site)/brief/MilestoneControls.tsx b/app/(site)/brief/MilestoneControls.tsx
+new file mode 100644
+index 0000000..8844246
+--- /dev/null
++++ b/app/(site)/brief/MilestoneControls.tsx
+@@ -0,0 +1,58 @@
++"use client";
++
++import type { EstimateMilestone } from "./types";
++
++export type MilestoneControlsProps = {
++  milestones: EstimateMilestone[];
++  lockedIds: string[];
++  onToggleLock: (id: string, locked: boolean) => void;
++  onFitToLaunch: () => void;
++  fitMessage: string | null;
++  showLaunchFit: boolean;
++};
++
++export function MilestoneControls({
++  milestones,
++  lockedIds,
++  onToggleLock,
++  onFitToLaunch,
++  fitMessage,
++  showLaunchFit,
++}: MilestoneControlsProps) {
++  return (
++    <section className="brief-milestones">
++      <h3>Working milestones</h3>
++      {showLaunchFit ? (
++        <div className="brief-milestones__fit">
++          <button type="button" onClick={onFitToLaunch}>
++            Fit plan to launch date
++          </button>
++          {fitMessage ? <small>{fitMessage}</small> : null}
++        </div>
++      ) : null}
++      <div>
++        {milestones.map((milestone) => (
++          <article key={milestone.id}>
++            <span>{milestone.paymentPercent}%</span>
++            <div>
++              <strong>{milestone.name}</strong>
++              <p>
++                {milestone.weeks} week{milestone.weeks === 1 ? "" : "s"} —{" "}
++                {milestone.description}
++              </p>
++              <small>{milestone.outputs.join(" / ")}</small>
++            </div>
++            <label className="brief-milestones__lock">
++              <input
++                type="checkbox"
++                checked={lockedIds.includes(milestone.id)}
++                onChange={(event) => onToggleLock(milestone.id, event.target.checked)}
++              />
++              Pin these weeks
++            </label>
++          </article>
++        ))}
++      </div>
++    </section>
++  );
++}
+diff --git a/app/(site)/brief/estimate.ts b/app/(site)/brief/estimate.ts
+index b31b0c8..f1faa6a 100644
+--- a/app/(site)/brief/estimate.ts
++++ b/app/(site)/brief/estimate.ts
+@@ -1,4 +1,6 @@
+ import { getDeliverable, getService } from "./catalog";
++import { rebalanceMilestones } from "./rebalance";
++import type { RebalanceFailure, RebalanceRequest } from "./rebalance";
+ import type {
+   BriefEstimate,
+   EstimateLine,
+@@ -240,3 +242,25 @@ export const createEstimate = (brief: ProjectBrief): BriefEstimate => {
+ 
+ export const estimateSummary = (estimate: BriefEstimate): string =>
+   `${formatCurrency(estimate.minCost)}-${formatCurrency(estimate.maxCost)} over approximately ${estimate.estimatedWeeks} weeks`;
++
++/**
++ * An estimate with its milestone plan fitted onto a chosen timeline.
++ * Locks and rules behave exactly as in rebalanceMilestones, and the
++ * week count on the estimate follows the plan that comes back.
++ */
++export const estimateWithTimeline = (
++  brief: ProjectBrief,
++  request: RebalanceRequest,
++): { ok: true; estimate: BriefEstimate } | RebalanceFailure => {
++  const estimate = createEstimate(brief);
++  const outcome = rebalanceMilestones(estimate.milestones, request);
++  if (!outcome.ok) return outcome;
++  return {
++    ok: true,
++    estimate: {
++      ...estimate,
++      milestones: outcome.milestones,
++      estimatedWeeks: request.totalWeeks,
++    },
++  };
++};
+diff --git a/app/(site)/brief/rebalance.ts b/app/(site)/brief/rebalance.ts
+new file mode 100644
+index 0000000..8b78816
+--- /dev/null
++++ b/app/(site)/brief/rebalance.ts
+@@ -0,0 +1,239 @@
++import type { EstimateMilestone } from "./types";
++
++/**
++ * Locked milestone rebalancing.
++ *
++ * A client can pin the milestones they care about. When the timeline
++ * moves, the change is spread over the unpinned milestones only, every
++ * milestone keeps at least one week, the payment split still adds up to
++ * a hundred percent, and when the pins make the plan impossible the
++ * outcome names the pins to let go of.
++ */
++
++export type RebalanceRequest = {
++  totalWeeks: number;
++  lockedIds?: string[];
++};
++
++export type RebalanceSuccess = {
++  ok: true;
++  milestones: EstimateMilestone[];
++};
++
++export type RebalanceFailure = {
++  ok: false;
++  reason: "invalid-total" | "unsatisfiable";
++  message: string;
++  releaseCandidates: string[];
++};
++
++export type RebalanceOutcome = RebalanceSuccess | RebalanceFailure;
++
++const DAY_MS = 86_400_000;
++const WEEK_MS = 7 * DAY_MS;
++
++const isWholeNumber = (value: number): value is number =>
++  Number.isFinite(value) && Number.isInteger(value) && value > 0;
++
++/**
++ * Whole weeks between two ISO dates, rounded down. A launch earlier than
++ * the kickoff has no weeks at all.
++ */
++export const weeksUntil = (kickoff: string, launch: string): number => {
++  const start = new Date(kickoff).getTime();
++  const end = new Date(launch).getTime();
++  if (!Number.isFinite(start) || !Number.isFinite(end)) return 0;
++  return Math.max(0, Math.floor((end - start) / WEEK_MS));
++};
++
++/**
++ * Spread an amount over items in proportion to their weights, keeping a
++ * floor of one for every item and hitting the target exactly. Remainders
++ * go to the earlier items, so the result is deterministic.
++ */
++const distributeWithFloor = (target: number, weights: number[]): number[] => {
++  const count = weights.length;
++  if (count === 0) return [];
++  const shares = weights.map(() => 1);
++  const remaining = target - count;
++  if (remaining <= 0) return shares;
++
++  const totalWeight = weights.reduce((total, weight) => total + Math.max(0, weight), 0);
++  if (totalWeight <= 0) {
++    // No weight information: spread the remainder evenly, earlier first.
++    const even = Math.floor(remaining / count);
++    shares.forEach((_, index) => {
++      shares[index] += even;
++    });
++    let leftover = remaining - even * count;
++    let index = 0;
++    while (leftover > 0) {
++      shares[index % count] += 1;
++      leftover -= 1;
++      index += 1;
++    }
++    return shares;
++  }
++
++  const exact = weights.map((weight) => (Math.max(0, weight) / totalWeight) * remaining);
++  const bases = exact.map((value) => Math.floor(value));
++  let leftover = remaining - bases.reduce((total, value) => total + value, 0);
++  const order = exact
++    .map((value, index) => ({ index, fraction: value - Math.floor(value) }))
++    .sort((a, b) => b.fraction - a.fraction || a.index - b.index);
++  for (const entry of order) {
++    if (leftover <= 0) break;
++    bases[entry.index] += 1;
++    leftover -= 1;
++  }
++  bases.forEach((value, index) => {
++    shares[index] += value;
++  });
++  return shares;
++};
++
++type Feasibility = { feasible: true } | { feasible: false; releaseCandidates: string[] };
++
++const checkWeeks = (
++  milestones: EstimateMilestone[],
++  locked: Set<string>,
++  totalWeeks: number,
++): Feasibility => {
++  const lockedWeeks = milestones
++    .filter((milestone) => locked.has(milestone.id))
++    .reduce((total, milestone) => total + milestone.weeks, 0);
++  const unlockedCount = milestones.filter((milestone) => !locked.has(milestone.id)).length;
++  if (lockedWeeks + unlockedCount <= totalWeeks) return { feasible: true };
++
++  // Name the pins whose release alone would make the plan possible:
++  // the heaviest pins first, ties keeping catalog order.
++  const pins = milestones
++    .filter((milestone) => locked.has(milestone.id))
++    .map((milestone, index) => ({ id: milestone.id, weeks: milestone.weeks, index }))
++    .sort((a, b) => b.weeks - a.weeks || a.index - b.index);
++  const candidates: string[] = [];
++  let lockedSum = lockedWeeks;
++  for (const pin of pins) {
++    if (lockedSum + unlockedCount <= totalWeeks) break;
++    candidates.push(pin.id);
++    lockedSum -= pin.weeks;
++  }
++  return { feasible: false, releaseCandidates: candidates };
++};
++
++const checkPayments = (milestones: EstimateMilestone[], locked: Set<string>): Feasibility => {
++  const lockedPayment = milestones
++    .filter((milestone) => locked.has(milestone.id))
++    .reduce((total, milestone) => total + milestone.paymentPercent, 0);
++  const unlockedCount = milestones.filter((milestone) => !locked.has(milestone.id)).length;
++  if (lockedPayment + unlockedCount <= 100) return { feasible: true };
++
++  const pins = milestones
++    .filter((milestone) => locked.has(milestone.id))
++    .map((milestone, index) => ({ id: milestone.id, percent: milestone.paymentPercent, index }))
++    .sort((a, b) => b.percent - a.percent || a.index - b.index);
++  const candidates: string[] = [];
++  let paymentSum = lockedPayment;
++  for (const pin of pins) {
++    if (paymentSum + unlockedCount <= 100) break;
++    candidates.push(pin.id);
++    paymentSum -= pin.percent;
++  }
++  return { feasible: false, releaseCandidates: candidates };
++};
++
++/**
++ * Rebalance a milestone plan onto a new total. Locked milestones keep
++ * their weeks and their payment share; the unlocked ones absorb the
++ * change with at least one week and at least one percent each; both
++ * totals land exactly. Unknown lock ids are ignored. The input array is
++ * never mutated and the output keeps the original order and content.
++ */
++export const rebalanceMilestones = (
++  milestones: EstimateMilestone[],
++  request: RebalanceRequest,
++): RebalanceOutcome => {
++  if (!isWholeNumber(request.totalWeeks)) {
++    return {
++      ok: false,
++      reason: "invalid-total",
++      message: "totalWeeks must be a whole number greater than zero",
++      releaseCandidates: [],
++    };
++  }
++
++  const locked = new Set((request.lockedIds ?? []).filter((id) =>
++    milestones.some((milestone) => milestone.id === id),
++  ));
++
++  const weeksCheck = checkWeeks(milestones, locked, request.totalWeeks);
++  const paymentCheck = checkPayments(milestones, locked);
++  const blocked = !weeksCheck.feasible ? weeksCheck : !paymentCheck.feasible ? paymentCheck : null;
++  if (blocked) {
++    return {
++      ok: false,
++      reason: "unsatisfiable",
++      message:
++        blocked.releaseCandidates.length > 0
++          ? "The locked milestones leave too little room; release one of the named locks."
++          : "The timeline is too short for every milestone to keep at least one week.",
++      releaseCandidates: blocked.releaseCandidates,
++    };
++  }
++
++  const lockedWeeks = milestones
++    .filter((milestone) => locked.has(milestone.id))
++    .reduce((total, milestone) => total + milestone.weeks, 0);
++  const unlocked = milestones.filter((milestone) => !locked.has(milestone.id));
++  const unlockedWeeks = distributeWithFloor(
++    request.totalWeeks - lockedWeeks,
++    unlocked.map((milestone) => milestone.weeks),
++  );
++
++  const lockedPayment = milestones
++    .filter((milestone) => locked.has(milestone.id))
++    .reduce((total, milestone) => total + milestone.paymentPercent, 0);
++  const unlockedPayment = distributeWithFloor(
++    100 - lockedPayment,
++    unlocked.map((milestone) => milestone.paymentPercent),
++  );
++
++  let unlockedIndex = 0;
++  const rebalanced = milestones.map((milestone) => {
++    if (locked.has(milestone.id)) return { ...milestone };
++    const weeks = unlockedWeeks[unlockedIndex];
++    const paymentPercent = unlockedPayment[unlockedIndex];
++    unlockedIndex += 1;
++    return { ...milestone, weeks, paymentPercent };
++  });
++
++  return { ok: true, milestones: rebalanced };
++};
++
++/**
++ * Compress a plan to fit before a launch date. When the milestones
++ * already fit the available weeks the plan comes back unchanged, and a
++ * launch that cannot be met even at one week per unlocked milestone is
++ * refused with the pins that have to move.
++ */
++export const compressForLaunch = (
++  milestones: EstimateMilestone[],
++  kickoff: string,
++  launch: string,
++  lockedIds: string[] = [],
++): RebalanceOutcome => {
++  const available = weeksUntil(kickoff, launch);
++  const totalWeeks = milestones.reduce((total, milestone) => total + milestone.weeks, 0);
++  if (available <= 0) {
++    return {
++      ok: false,
++      reason: "unsatisfiable",
++      message: "The launch date leaves no whole weeks after the kickoff.",
++      releaseCandidates: [],
++    };
++  }
++  if (totalWeeks <= available) {
++    return { ok: true, milestones: milestones.map((milestone) => ({ ...milestone })) };
++  }
++  return rebalanceMilestones(milestones, { totalWeeks: available, lockedIds });
++};
+diff --git a/tests/rebalance.test.ts b/tests/rebalance.test.ts
+new file mode 100644
+index 0000000..043855f
+--- /dev/null
++++ b/tests/rebalance.test.ts
+@@ -0,0 +1,186 @@
++import { describe, expect, it } from "vitest";
++import {
++  compressForLaunch,
++  rebalanceMilestones,
++  weeksUntil,
++} from "../app/(site)/brief/rebalance";
++import { createEstimate, estimateWithTimeline } from "../app/(site)/brief/estimate";
++import type { EstimateMilestone } from "../app/(site)/brief/types";
++import { makeBrief, service } from "./helpers";
++
++const milestone = (
++  id: string,
++  weeks: number,
++  paymentPercent: number,
++): EstimateMilestone => ({
++  id,
++  name: id,
++  weeks,
++  description: `${id} work`,
++  outputs: [`${id} output`],
++  paymentPercent,
++});
++
++const plan = (): EstimateMilestone[] => [
++  milestone("align", 3, 30),
++  milestone("direction", 4, 30),
++  milestone("develop", 5, 25),
++  milestone("launch", 2, 15),
++];
++
++const totalWeeks = (milestones: EstimateMilestone[]): number =>
++  milestones.reduce((total, item) => total + item.weeks, 0);
++
++const totalPayment = (milestones: EstimateMilestone[]): number =>
++  milestones.reduce((total, item) => total + item.paymentPercent, 0);
++
++describe("rebalanceMilestones", () => {
++  it("keeps locked weeks and payment shares while the rest absorb the change", () => {
++    const outcome = rebalanceMilestones(plan(), { totalWeeks: 10, lockedIds: ["develop"] });
++    expect(outcome.ok).toBe(true);
++    if (!outcome.ok) return;
++    const develop = outcome.milestones.find((item) => item.id === "develop");
++    expect(develop?.weeks).toBe(5);
++    expect(develop?.paymentPercent).toBe(25);
++    expect(totalWeeks(outcome.milestones)).toBe(10);
++    expect(totalPayment(outcome.milestones)).toBe(100);
++  });
++
++  it("gives every unlocked milestone at least one week and one percent", () => {
++    const outcome = rebalanceMilestones(plan(), { totalWeeks: 5 });
++    expect(outcome.ok).toBe(true);
++    if (!outcome.ok) return;
++    expect(outcome.milestones.every((item) => item.weeks >= 1)).toBe(true);
++    expect(outcome.milestones.every((item) => item.paymentPercent >= 1)).toBe(true);
++    expect(totalWeeks(outcome.milestones)).toBe(5);
++    expect(totalPayment(outcome.milestones)).toBe(100);
++  });
++
++  it("returns an unchanged plan when the total already fits and nothing is locked", () => {
++    const outcome = rebalanceMilestones(plan(), { totalWeeks: 14 });
++    expect(outcome.ok).toBe(true);
++    if (!outcome.ok) return;
++    expect(outcome.milestones).toEqual(plan());
++  });
++
++  it("never mutates the input plan", () => {
++    const original = plan();
++    rebalanceMilestones(original, { totalWeeks: 8, lockedIds: ["align"] });
++    expect(original).toEqual(plan());
++  });
++
++  it("is deterministic for repeated runs", () => {
++    const first = rebalanceMilestones(plan(), { totalWeeks: 9, lockedIds: ["direction"] });
++    const second = rebalanceMilestones(plan(), { totalWeeks: 9, lockedIds: ["direction"] });
++    expect(first).toEqual(second);
++  });
++
++  it("ignores lock ids that do not exist in the plan", () => {
++    const outcome = rebalanceMilestones(plan(), { totalWeeks: 12, lockedIds: ["ghost"] });
++    expect(outcome.ok).toBe(true);
++    if (!outcome.ok) return;
++    expect(totalWeeks(outcome.milestones)).toBe(12);
++  });
++
++  it("refuses totals that are not whole positive numbers", () => {
++    for (const bad of [0, -3, 4.5, Number.NaN]) {
++      const outcome = rebalanceMilestones(plan(), { totalWeeks: bad });
++      expect(outcome.ok).toBe(false);
++      if (outcome.ok) continue;
++      expect(outcome.reason).toBe("invalid-total");
++      expect(outcome.releaseCandidates).toEqual([]);
++    }
++  });
++
++  it("names the lock to release when pins leave too little room", () => {
++    const tight = [
++      milestone("align", 6, 50),
++      milestone("direction", 6, 40),
++      milestone("develop", 1, 5),
++      milestone("launch", 1, 5),
++    ];
++    const outcome = rebalanceMilestones(tight, { totalWeeks: 9, lockedIds: ["align", "direction"] });
++    expect(outcome.ok).toBe(false);
++    if (outcome.ok) return;
++    expect(outcome.reason).toBe("unsatisfiable");
++    expect(outcome.releaseCandidates.length).toBeGreaterThan(0);
++    expect(["align", "direction"]).toContain(outcome.releaseCandidates[0]);
++
++    // releasing the named lock makes the same request feasible
++    const retry = rebalanceMilestones(tight, {
++      totalWeeks: 9,
++      lockedIds: ["align", "direction"].filter((id) => !outcome.releaseCandidates.includes(id)),
++    });
++    expect(retry.ok).toBe(true);
++  });
++
++  it("refuses a timeline shorter than one week per milestone with no candidates", () => {
++    const outcome = rebalanceMilestones(plan(), { totalWeeks: 3 });
++    expect(outcome.ok).toBe(false);
++    if (outcome.ok) return;
++    expect(outcome.reason).toBe("unsatisfiable");
++    expect(outcome.releaseCandidates).toEqual([]);
++  });
++});
++
++describe("weeksUntil", () => {
++  it("counts whole weeks between dates, rounding down", () => {
++    expect(weeksUntil("2026-01-05", "2026-02-02")).toBe(4);
++    expect(weeksUntil("2026-01-05", "2026-02-01")).toBe(3);
++    expect(weeksUntil("2026-01-05", "2026-01-04")).toBe(0);
++  });
++});
++
++describe("compressForLaunch", () => {
++  it("returns the plan unchanged when it already fits", () => {
++    const outcome = compressForLaunch(plan(), "2026-01-05", "2026-04-14");
++    expect(outcome.ok).toBe(true);
++    if (!outcome.ok) return;
++    expect(outcome.milestones).toEqual(plan());
++  });
++
++  it("compresses to the available weeks while respecting locks", () => {
++    const outcome = compressForLaunch(plan(), "2026-01-05", "2026-02-09", ["launch"]);
++    expect(outcome.ok).toBe(true);
++    if (!outcome.ok) return;
++    expect(totalWeeks(outcome.milestones)).toBe(5);
++    expect(outcome.milestones.find((item) => item.id === "launch")?.weeks).toBe(2);
++    expect(totalPayment(outcome.milestones)).toBe(100);
++    expect(outcome.milestones.find((item) => item.id === "launch")?.paymentPercent).toBe(15);
++  });
++
++  it("refuses a launch date that leaves no whole weeks", () => {
++    const outcome = compressForLaunch(plan(), "2026-02-02", "2026-01-05");
++    expect(outcome.ok).toBe(false);
++    if (outcome.ok) return;
++    expect(outcome.reason).toBe("unsatisfiable");
++  });
++});
++
++
++describe("estimateWithTimeline", () => {
++  it("fits the estimated plan onto the requested timeline", () => {
++    const brief = makeBrief({
++      selectedServices: [service("research"), service("brand-strategy")],
++      timelineRange: "six-to-ten",
++    });
++    const estimate = createEstimate(brief);
++    const outcome = estimateWithTimeline(brief, { totalWeeks: Math.max(4, estimate.estimatedWeeks) });
++    expect(outcome.ok).toBe(true);
++    if (!outcome.ok) return;
++    const weeks = outcome.estimate.milestones.reduce((total, item) => total + item.weeks, 0);
++    expect(weeks).toBe(Math.max(4, estimate.estimatedWeeks));
++    expect(outcome.estimate.estimatedWeeks).toBe(Math.max(4, estimate.estimatedWeeks));
++    const payment = outcome.estimate.milestones.reduce((total, item) => total + item.paymentPercent, 0);
++    expect(payment).toBe(100);
++    expect(outcome.estimate.milestones.map((item) => item.id)).toEqual(["align", "direction", "develop", "launch"]);
++  });
++
++  it("carries a refusal through from the rebalance rules", () => {
++    const brief = makeBrief({ selectedServices: [service("research")] });
++    const outcome = estimateWithTimeline(brief, { totalWeeks: 1 });
++    expect(outcome.ok).toBe(false);
++    if (outcome.ok) return;
++    expect(outcome.reason).toBe("unsatisfiable");
++  });
++});

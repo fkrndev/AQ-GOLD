@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "AfterQuery Log Downloader",
+  "version": "1.0.0",
+  "description": "Adds a 'Download all logs' button below 'Browse job directory' on maintainer task pages.",
+  "content_scripts": [
+    {
+      "matches": ["https://experts.afterquery.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

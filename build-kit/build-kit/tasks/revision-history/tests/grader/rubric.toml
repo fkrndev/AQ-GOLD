@@ -1,0 +1,53 @@
+[judge]
+mode = "individual"
+samples = 1
+guard = "penalize"
+isolated = true
+timeout = 300
+prompt_template = "judge-prompt.md"
+files = ["submission/change.diff", "submission/changed-files.txt"]
+
+[[criterion]]
+id = "restore-adds-new-entry"
+description = "Does restoreRevision in revisions.ts add the restored brief as a new revision entry instead of replacing the stored entry it restores from? (Judge the restoreRevision function in revisions.ts.)"
+type = "binary"
+weight = 3
+
+[criterion.annotations]
+blocker = false
+
+[[criterion]]
+id = "no-orphaned-revision-data"
+description = "When a revision leaves the list through eviction or same-name replacement, does the write path in revisions.ts delete its stored data instead of leaving it behind? (Judge the write path in revisions.ts.)"
+type = "binary"
+weight = 2
+
+[criterion.annotations]
+blocker = false
+
+[[criterion]]
+id = "stored-briefs-are-normalized"
+description = "Does the parse path in revisions.ts pass each stored brief through the existing normalizeBrief before trusting it? (Judge the parse path in revisions.ts.)"
+type = "binary"
+weight = 2
+
+[criterion.annotations]
+blocker = false
+
+[[criterion]]
+id = "anchor-identity-is-persisted"
+description = "Is the anchor revision identity persisted with the stored history rather than held only in module memory, so it survives a page reload? (Judge the write path in revisions.ts.)"
+type = "binary"
+weight = 2
+
+[criterion.annotations]
+blocker = false
+
+[[criterion]]
+id = "added-tests-clear-stored-state"
+description = "Do the tests added under tests/ clear the stored history between cases so results do not depend on test order? (Judge the new test files under tests/.)"
+type = "binary"
+weight = 1
+
+[criterion.annotations]
+blocker = false
